@@ -1,0 +1,38 @@
+name: caspbx-test
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  caspbx:
+    image: ghcr.io/casapps/caspbx:latest
+    pull_policy: always
+    container_name: caspbx-test
+    restart: 'no'
+    logging: *default-logging
+    environment:
+      - MODE=development
+      - PORT=80
+      - DEBUG=true
+      - TZ=America/New_York
+    ports:
+      - '64581:80'
+    volumes:
+      - ./rootfs/config:/config:z
+      - ./rootfs/data:/data:z
+    healthcheck:
+      test: /usr/local/bin/caspbx --status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    networks:
+      - caspbx-test
+
+networks:
+  caspbx-test:
+    name: caspbx-test
+    external: false

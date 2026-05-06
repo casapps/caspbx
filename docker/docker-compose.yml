@@ -1,0 +1,71 @@
+# caspbx - production multi-service compose
+# nginx proxy address - http://172.17.0.1:64580
+
+name: caspbx
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  caspbx:
+    image: ghcr.io/casapps/caspbx:latest
+    pull_policy: always
+    container_name: caspbx-app
+    restart: always
+    logging: *default-logging
+    depends_on:
+      caspbx-db:
+        condition: service_healthy
+    environment:
+      - MODE=production
+      - PORT=80
+      - DEBUG=false
+      - TZ=America/New_York
+      - DB_HOST=caspbx-db
+      - DB_PORT=5432
+      - DB_NAME=caspbx
+      - DB_USER=caspbx
+      - DB_PASSWORD=caspbx
+    volumes:
+      - ./rootfs/config:/config:z
+      - ./rootfs/data:/data:z
+    ports:
+      - '172.17.0.1:64580:80'
+    healthcheck:
+      test: /usr/local/bin/caspbx --status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    networks:
+      - caspbx
+
+  caspbx-db:
+    image: postgres:alpine
+    pull_policy: always
+    container_name: caspbx-db
+    restart: always
+    logging: *default-logging
+    environment:
+      - POSTGRES_DB=caspbx
+      - POSTGRES_USER=caspbx
+      - POSTGRES_PASSWORD=caspbx
+      - TZ=America/New_York
+    volumes:
+      - ./rootfs/data/db/postgres/caspbx:/var/lib/postgresql/data:z
+    healthcheck:
+      test: pg_isready -U caspbx -d caspbx
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - caspbx
+
+networks:
+  caspbx:
+    name: caspbx
+    external: false

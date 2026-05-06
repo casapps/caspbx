@@ -149,12 +149,15 @@ The minimum parity floor should be evaluated against concrete replacement surfac
 project_name: caspbx
 project_org: casapps
 internal_name: caspbx
+official_site: none
 admin_path: admin
 asterisk_admin_path: admin/server/asterisk
 asterisk_min_version: 12
 default_user_registration_mode: private
 default_tts_engine: flite
 post_install_management_mode: webui
+maintainer_name: casappps
+maintainer_email: docker-admin@casjaysdev.pro
 
 ## Business logic
 
@@ -365,6 +368,263 @@ Asterisk compatibility and feature exposure policy:
 - If a hardware-backed or integration-backed feature is not present on the current deployment, `caspbx` should hide or suppress the corresponding admin UI rather than showing dead configuration surfaces
 - When a previously unavailable capability becomes available, the relevant UI should appear automatically with the correct role gating, validation, and explanatory messaging
 - Examples include DAHDI-backed hardware interfaces, specific codec-dependent features, optional fax/document paths, and backend integrations that are not installed or not currently usable
+
+Canonical platform architecture:
+
+`caspbx` should be treated as one platform composed of tightly integrated layers rather than a collection of optional modules.
+
+1. **Platform control layer**
+    - Global configuration, deployment identity, setup flows, server-admin control, storage policy, auditability, notification routing, and platform-wide operational state
+    - Tenant provisioning, domain resolution, branding, environment detection, dependency detection, and deployment-wide policy
+
+2. **Identity and access layer**
+    - Server Admin accounts, tenant/customer administrators, organization administrators, supervisors, agents/staff users, and end users/extension users
+    - Authentication, invitations, session models, MFA, passkeys, privacy controls, membership, delegation, and scope-aware permission resolution
+
+3. **Communications domain layer**
+    - Telephony objects such as extensions, endpoints, trunks, routes, queues, conferences, IVRs, prompts, voicemail, recordings, fax routing, presence, messaging identities, and time-based behaviors
+    - The canonical business objects live in `caspbx`; backend configuration is generated from these higher-level objects
+
+4. **Realtime operations layer**
+    - Active call state, endpoint state, queue events, conference activity, fax state, notifications, reminders, wakeup activity, dashboard metrics, alarms, and audit/event streams
+    - This layer powers live UI surfaces for operators, supervisors, admins, and users without exposing raw backend command output as the primary UI
+
+5. **Delivery layer**
+    - Server-rendered public, user, organization, and admin web surfaces
+    - Versioned API surfaces mirroring the required route scopes
+    - Optional CLI/agent integrations that consume the same platform model rather than bypassing it
+
+Canonical ownership and identity hierarchy:
+
+The business hierarchy for `caspbx` should be explicit and stable.
+
+1. **Platform**
+    - The total deployment, global configuration, global integrations, global infrastructure policy, and server-admin authority boundary
+
+2. **Tenant**
+    - A hosted customer or single-instance customer boundary
+    - Owns tenant branding, numbering/routing policy, telephony resources assigned to that customer, storage policy, user population, and tenant-scoped operational settings
+    - In single-tenant deployments, one default tenant still exists conceptually even if the UI simplifies around it
+
+3. **Organization**
+    - An optional collaboration and delegation boundary inside one tenant
+    - Used when teams, departments, or business units need shared resources, shared membership, shared visibility, or delegated administration inside the tenant
+
+4. **User**
+    - A regular authenticated account representing a human actor using the platform
+    - Can hold one or more role assignments inside a tenant and optionally inside one or more organizations
+
+5. **Extension identity**
+    - A telephony execution identity attached to a user, shared workspace, queue/agent, device pool, fax endpoint, conference object, or service workflow
+    - An extension is not the user account itself; it is the communications identity and routing object managed by the platform
+
+6. **Endpoint / device**
+    - A physical phone, softphone, browser client, modem endpoint, fax path, trunk peer, or other communications endpoint bound to extension and transport policy
+
+Canonical domain entities:
+
+The first implementation architecture should treat the following as top-level domain entities that deserve explicit models rather than ad-hoc configuration blobs.
+
+| Entity | Scope | Purpose |
+| --- | --- | --- |
+| platform | global | Deployment-wide control surface and authority boundary |
+| server admin | global | Administrative identity for `/{admin_path}` and `/{admin_path}/server/*` |
+| tenant | platform | Customer/environment boundary for hosted or single-instance operation |
+| organization | tenant | Optional shared team boundary inside a tenant |
+| user | tenant | Human account using the communications platform |
+| membership | org/tenant | Maps users to organization and delegated roles |
+| extension | tenant/org/user | Canonical telephony identity and routing anchor |
+| endpoint | tenant | Device, browser client, phone, modem, or peer attachment |
+| trunk / gateway | tenant/platform | External network ingress/egress connection |
+| route | tenant | Inbound/outbound/time/condition/ruleset routing intent |
+| queue | tenant/org | Contact-center queue and membership object |
+| conference | tenant/org/user | Conference room and policy object |
+| ivr | tenant | Menu tree, routing, schedule, and prompt behavior |
+| media asset | tenant/platform | Prompt, recording, music-on-hold, generated TTS, or document artifact |
+| fax object | tenant/org/user | Fax endpoint, message, route, delivery, archive, and mailbox state |
+| reminder / wakeup job | tenant/user | Scheduled telephony action with retry and delivery state |
+| xmpp / presence identity | tenant/user/extension | Messaging and presence object when supported |
+| custom domain | tenant/org/user | Branded hostname mapped to platform-owned resources |
+| capability record | platform/tenant/node | Detected availability of backend feature families |
+| audit event | all scopes | Immutable operational and security history |
+
+Telephony object ownership rules:
+
+- A tenant owns its dialing plan intent, numbering scope, trunks, call flows, queues, prompts, voicemail policies, fax routes, and tenant-visible operational settings
+- An organization may own shared resources inside a tenant such as queues, conferences, prompts, address books, and reporting scopes when the tenant enables organizations
+- A user may own personal resources such as personal settings, webphone preferences, personal forwarding, personal voicemail preferences, API tokens, personal contact data, and personal custom domains when such domains are enabled
+- An extension may be assigned to one user, one shared role, one queue/agent model, one fax workflow, or one automation object, but the assignment rules must remain explicit and auditable
+- Server admins never become tenant users implicitly; cross-scope access must be deliberate and auditable
+
+Permission architecture:
+
+Permissions should resolve from both role and scope instead of from one flat global role list.
+
+| Actor | Primary scope | Core authority |
+| --- | --- | --- |
+| server admin | platform | Global configuration, tenants, backend integrations, updates, backups, audits, platform-wide telephony and infrastructure control |
+| tenant admin | tenant | Tenant users, extensions, routes, devices, queues, prompts, fax workflows, tenant branding, tenant policies |
+| organization admin | organization | Org membership, org-owned resources, org-level policies, org-scoped communications workflows |
+| supervisor | tenant/org | Queue operations, wallboards, reports, intervention actions, reminders, operational dashboards |
+| agent / staff | tenant/org | Assigned operational and communications tooling only |
+| end user | self | Personal communications settings, personal devices, personal voicemail, personal conferencing, personal tokens, personal custom domains where allowed |
+
+Permission rules:
+
+- All write actions must be scoped to a concrete authority boundary: platform, tenant, organization, queue/supervisor, or self
+- Read access should default to least privilege with explicit elevation for reporting, recordings, fax archives, and operational surveillance features
+- Server admins may administer tenant and organization objects from the admin surface, but their session model remains separate from user sessions
+- Tenant and organization admins may manage members and telephony objects within their scope, but must not be able to escape into global platform configuration
+- Supervisory live-monitoring actions such as spy, whisper, barge, forced recording, queue control, and agent-state control must require explicit capability support and elevated permission grants
+- User security secrets remain user-controlled even when admins can suspend, invite, or reset access
+
+Route and surface architecture:
+
+The architecture should deliberately map business scopes onto the route scopes required by AI.md.
+
+1. **Public / server information surface**
+    - `/server/*`
+    - Health, about, contact, privacy, terms, support, branded informational pages, and non-authenticated status/help surfaces
+
+2. **Authentication surface**
+    - `/auth/*`
+    - Login, logout, password reset, invitation redemption, passkey/TOTP handoff, email verification, and registration-mode-dependent onboarding flows
+
+3. **User self-service surface**
+    - `/users/*`
+    - Current-user profile, settings, security, tokens, notifications, email settings, personal communications controls, personal webphone state, personal voicemail, personal fax, personal domains, and personal operational history
+    - User routes never require a user ID in the URL for self-service operations
+
+4. **Organization collaboration surface**
+    - `/orgs/{slug}/*`
+    - Org profile, members, settings, org-owned resources, org tokens, org notifications, org domains, org reporting, and org-scoped communications assets
+
+5. **Admin surface**
+    - `/{admin_path}`
+    - Dashboard, admin profile, admin preferences, admin notifications
+    - All server/platform management remains under `/{admin_path}/server/*`
+    - Full Asterisk stack administration remains under `/{asterisk_admin_path}`
+
+6. **Tenant-branded application surface**
+    - Tenant and custom-domain-aware routes for hosted customer experiences should resolve by hostname/domain context rather than by exposing a separate public `/tenants/*` route family as the primary UX
+    - A tenant custom domain may present the customer-facing communications experience, user entry point, or tenant-branded portal, while server-admin access remains on the platform-controlled admin path
+
+Mirrored API architecture:
+
+- Every first-class web scope must have a corresponding versioned API scope under `/api/{api_version}/...`
+- `/users/*` mirrors `/api/{api_version}/users/*`
+- `/orgs/{slug}/*` mirrors `/api/{api_version}/orgs/{slug}/*`
+- `/{admin_path}/server/*` mirrors `/api/{api_version}/{admin_path}/server/*`
+- Project-specific telephony resources should follow the same scope rules rather than inventing ad-hoc endpoint families
+- Customer-managed domains must never become a shortcut into platform-admin APIs
+
+Admin and custom-domain isolation rules:
+
+- Server-admin login and server-admin routes remain isolated from user, org, and tenant-branded experiences
+- Custom domains are for tenant, organization, user, and customer-facing branded surfaces, not for the hidden platform-admin surface
+- The primary platform admin UI should stay on the platform-controlled host and configured admin path so that server-admin isolation, session boundaries, and platform security posture stay predictable
+- Tenant/customer administrators may have branded tenant access to their own surfaces, but that does not collapse the distinction between tenant administration and platform/server administration
+
+Asterisk synchronization and control loops:
+
+The product architecture should model Asterisk interaction as recurring loops rather than one-time config export.
+
+1. **Intent-to-config loop**
+    - A user/admin changes a high-level object in `caspbx`
+    - `caspbx` validates the object against tenant policy, capability state, and version compatibility
+    - `caspbx` renders the concrete backend configuration artifacts and apply plan
+    - The operator gets preview, diff/summary, validation results, and apply status
+
+2. **Apply-and-activate loop**
+    - Generated artifacts are written to the correct backend locations
+    - Safe reload/restart/control actions are issued
+    - Post-apply checks confirm that the expected backend state became active
+    - Failures remain visible in UI history and audit trails
+
+3. **Runtime-event loop**
+    - Live Asterisk and helper-service events are normalized into internal event models
+    - The UI uses normalized events for dashboards, call panels, wallboards, notifications, and reports
+    - Automation features such as reminders, wakeup, failover, escalation, and retry logic consume these events rather than scraping ad-hoc status output
+
+4. **Media lifecycle loop**
+    - Prompt, recording, music-on-hold, voicemail, TTS, and fax-document assets are imported/generated, normalized, validated, versioned where useful, assigned to platform objects, and retired safely
+
+5. **Provisioning lifecycle loop**
+    - Device templates, transport settings, secrets, and compatibility-specific output are generated from tenant/endpoint policy and active capability state
+    - Changes are testable, previewable, and auditable before rollout
+
+Capability detection architecture:
+
+Capability detection is a core business concern, not merely a startup check.
+
+Detected capability families should include at minimum:
+
+- installed Asterisk version and supported feature families
+- channel drivers and endpoint stacks
+- codecs and transcoding support
+- queue, conference, recording, and voicemail capabilities
+- XMPP and presence capabilities
+- DAHDI or other hardware-backed telephony capabilities
+- fax/modem/document-processing paths
+- browser-calling prerequisites
+- mail delivery readiness
+- TLS/certificate readiness
+- host services needed for backup, metrics, Tor, scheduling, and domain automation
+
+Capability behavior rules:
+
+- Capabilities are detected during install/bootstrap, refreshed after upgrades, and re-evaluated when backend packages or configuration materially change
+- UI exposure, form fields, background jobs, and validation rules must all consult the same capability model
+- A feature that is unavailable must be hidden or clearly marked unavailable before a user wastes time configuring it
+- Capability detection results should exist at both platform scope and tenant-effective scope because a tenant may be restricted from using a globally available capability
+
+Compatibility strategy for Asterisk 12+:
+
+- The compatibility contract is feature-family based rather than "lowest common denominator only"
+- `caspbx` should expose the highest coherent feature set available on the active deployment without lying about unavailable behaviors on older versions
+- Every major telephony feature family should declare:
+  - minimum supported backend version/capability
+  - required helper packages or transports
+  - degraded behavior when only partial support exists
+  - unsupported states that must be blocked in the UI
+- Compatibility messaging should appear directly in configuration and operational screens so administrators do not need shell access to understand why a feature is unavailable
+
+Supporting subsystem abstraction model:
+
+When helper services are required, `caspbx` should treat them as managed subsystems with one coherent UX.
+
+Managed subsystem classes include:
+
+- fax/modem backends
+- document conversion/rendering tooling
+- media conversion and audio preparation tooling
+- XMPP/presence backends where applicable
+- certificate/ACME automation helpers
+- SMTP delivery dependencies
+- scheduling, metrics, and security support services
+
+Abstraction rules:
+
+- Administrators should configure these through `caspbx`, not through a separate daily-use product UI
+- `caspbx` should expose health, configuration, logs, validation, and lifecycle actions for these subsystems from the Web UI
+- If a subsystem is absent, incompatible, or unhealthy, the platform should expose guided remediation and suppress unusable feature surfaces
+
+Tenant, organization, and domain resolution architecture:
+
+- Tenant context should resolve from deployment mode, hostname/custom-domain mapping, explicit admin selection, and authenticated membership
+- Organization context should always resolve inside a tenant; organizations never become a replacement for tenant boundaries
+- Usernames and organization slugs share one namespace wherever vanity-style resolution matters
+- Custom domains may belong to users, organizations, or tenant/customer experiences as allowed by platform policy
+- Domain verification, certificate issuance, renewal, suspension, and deletion are lifecycle states owned by the platform and exposed through user/org/admin surfaces
+- Domain resolution must feed branding, routing, authentication UX, and content ownership without weakening admin isolation
+
+Operational invariants for the architecture:
+
+- `caspbx` is always the system of record for high-level communications intent
+- Backend configuration and runtime state should be explainable from `caspbx` objects and audit history
+- Every named feature area must fit into the same permission, capability, audit, and deployment model rather than becoming a special-case subsystem
+- Hosted and single-tenant deployments should share one conceptual architecture even when some UI flows are simplified in single-tenant mode
+- Feature visibility, operational safety, and administrator guidance must remain consistent across PBX, fax, messaging, conferencing, operator, and platform-management surfaces
 
 Approved project-specific deviation from AI.md PART 34:
 

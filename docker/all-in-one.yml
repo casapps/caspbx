@@ -1,0 +1,44 @@
+# caspbx - all-in-one (app + postgresql + valkey + tor)
+# nginx proxy address - http://172.17.0.1:64580
+
+name: caspbx
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  caspbx:
+    image: ghcr.io/casapps/caspbx:latest-aio
+    pull_policy: always
+    container_name: caspbx-app
+    restart: always
+    logging: *default-logging
+    environment:
+      - MODE=production
+      - PORT=80
+      - DEBUG=false
+      - TZ=America/New_York
+      - DB_NAME=caspbx
+      - DB_USER=caspbx
+      - DB_PASSWORD=caspbx
+    ports:
+      - '172.17.0.1:64580:80'
+    volumes:
+      - ./rootfs/config:/config:z
+      - ./rootfs/data:/data:z
+    healthcheck:
+      test: /usr/local/bin/caspbx --status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    networks:
+      - caspbx
+
+networks:
+  caspbx:
+    name: caspbx
+    external: false
