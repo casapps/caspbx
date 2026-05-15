@@ -1,30 +1,113 @@
-# CASPBX Specification
+# {PROJECT_NAME} Specification
 
-**Name**: caspbx
+**Name**: {project_name}
+
+**Note:** `{PROJECT_NAME}` and `{project_name}` in this file are reference tokens, not setup-time text replacements. Their values are resolved from `IDEA.md ## Project variables` while `AI.md` remains read-only.
 
 ---
 
-# AI.md CONFIGURATION STATUS
+# 🆕 FIRST-TIME PROJECT SETUP
 
-**This AI.md has completed first-time setup and is now in reference-only mode.**
+**`AI.md` is a read-only specification. Project-specific values live in `IDEA.md ## Project variables`, and the placeholders in this file are resolved from there.**
 
-## Configured Project Values
+## Detecting Unconfigured Project Setup
 
-| Key | Value |
-|-----|-------|
-| `project_name` | `caspbx` |
-| `project_org` | `casapps` |
-| `internal_name` | `caspbx` |
-| `plist_name` | `io.github.casapps.caspbx` |
+```bash
+# Project is not configured until IDEA.md exists and has required variables
+[ ! -f IDEA.md ] && echo "SETUP NEEDED - IDEA.md missing"
 
-## Identity Rules
+have_name=$(grep -cE '^project_name:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
+have_org=$(grep -cE '^project_org:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
+have_internal=$(grep -cE '^internal_name:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
 
-- `project_name` is the user-facing project name and may change if the project is renamed later
-- `project_org` is the owning org/user value used throughout the spec
-- `internal_name` was set to `caspbx` during first-time setup and is now **frozen**
-- `plist_name` is always derived from `project_org + internal_name`
+[ "$have_name" -eq 0 ] || [ "$have_org" -eq 0 ] || [ "$have_internal" -eq 0 ] && \
+  echo "SETUP NEEDED - IDEA.md project variables incomplete"
+```
 
-**`internal_name` rule:** it is the stable on-disk identity for paths, services, and bundle IDs. Renaming it later requires a coordinated migration of every directory, service, and plist on every host.
+## Auto-Detecting Project Values
+
+**Project name and org can be inferred automatically:**
+
+| Value | Primary Source | Fallback |
+|-------|----------------|----------|
+| `{project_name}` | IDEA.md `## Project variables` | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then `basename "$PWD"` |
+| `{project_org}` | IDEA.md `## Project variables` | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then `basename "$(dirname "$PWD")"` |
+| `{internal_name}` | IDEA.md `## Project variables` (always — set once at first run, never edited after) | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then first-time setup: copy from `{project_name}` |
+| `{plist_name}` | **Derived (not stored)**: `io.github.{project_org}.{internal_name}` | — |
+
+**Detection commands (use commands — never guess):**
+```bash
+# Project name: current directory name
+project_name=$(basename "$PWD")
+
+# Project org: parent directory name (assumes ~/org/project structure)
+project_org=$(basename "$(dirname "$PWD")")
+
+# Internal name: same as project_name on first run, frozen forever after
+internal_name="$project_name"
+
+# Plist name: derived from project_org and internal_name (macOS Bundle ID convention)
+plist_name="io.github.${project_org}.${internal_name}"
+
+# Example: /home/user/github/myorg/myproject
+#   project_name  = myproject
+#   project_org   = myorg
+#   internal_name = myproject  (same as project_name on first run)
+#   plist_name    = io.github.myorg.myproject  (always derived)
+```
+
+**Why a separate `{internal_name}`:** if a project renames itself later (`{project_name}` changes from `myproject` to `myproject2`), the new name applies to user-visible places (binary command, docs, repo). But `{internal_name}` stays `myproject` forever, keeping `{config_dir}`, `{data_dir}`, `{log_dir}`, `{cache_dir}`, the systemd service unit, the macOS Bundle ID, and every other on-disk identifier stable. No data migration, no orphaned plists, no broken systemd dependencies.
+
+**Rule:** `{internal_name}` is set ONCE at first-time setup and is immutable for the life of the project. Editing it after the project is in production is a bug — the only sanctioned way to change it is a coordinated migration of every directory, service, and plist on every host.
+
+## First-Time Setup Flow
+
+```
+AI reads AI.md for the first time
+│
+├─► Check: Does IDEA.md exist with required `## Project variables` entries?
+│   │
+│   ├─► NO (setup needed)
+│   │   │
+│   │   ├─► 1. Check if IDEA.md exists
+│   │   │   ├─► YES: Read `## Project variables`; if incomplete, fill only the missing required values
+│   │   │   └─► NO: Check existing `CLAUDE.md` and `.claude/CLAUDE.md` for valid project-specific details, then fall back to directory structure commands — never guess
+│   │   │
+│   │   ├─► 2. Confirm with user: "Project: {project_name}, Org: {project_org} - correct?"
+│   │   │
+│   │   ├─► 3. Create IDEA.md if it doesn't exist
+│   │   │   - If a long-form/project-specific `CLAUDE.md` or `.claude/CLAUDE.md` already exists, MIGRATE its valid project description, project variables, and business logic into IDEA.md first
+│   │   │   - Do NOT copy loader-only instructions, duplicated AI.md rules, or stale implementation text into IDEA.md
+│   │   │   - On creation, write `internal_name: <project_name>` to `## Project variables` and warn the user it is frozen forever
+│   │   │
+│   │   └─► 4. Create or update IDEA.md `## Project variables`:
+│   │       - project_name  → actual project name (lowercase)
+│   │       - project_org   → actual org name (lowercase)
+│   │       - internal_name → on first run = project_name; afterwards read from IDEA.md, IMMUTABLE
+│   │       - Derived UPPERCASE placeholders are computed from these values when referenced
+│   │       - {plist_name} is derived as io.github.{project_org}.{internal_name} and is NOT stored
+│   │
+│   └─► YES (already configured)
+│       └─► Proceed with normal operation - read PART 0 first and resolve placeholders from IDEA.md as needed
+```
+
+## Placeholder Reference
+
+**These placeholders are reference tokens used by the spec. They are resolved from `IDEA.md ## Project variables` and are not meant to be manually rewritten throughout `AI.md` during project setup.**
+
+| Placeholder | Case | Mutability | Example |
+|-------------|------|------------|---------|
+| `{project_name}` | lowercase | Mutable (project may rename) | `myapp` |
+| `{PROJECT_NAME}` | UPPERCASE | Mutable | `MYAPP` |
+| `{project_org}` | lowercase | Mutable | `myorg` |
+| `{PROJECT_ORG}` | UPPERCASE | Mutable | `MYORG` |
+| `{internal_name}` | lowercase | **Frozen** at first-time setup | `myapp` |
+| `{INTERNAL_NAME}` | UPPERCASE | **Frozen** | `MYAPP` |
+| `{plist_name}` | derived | Derived from `{project_org}` + `{internal_name}` | `io.github.myorg.myapp` |
+
+**`{internal_name}` rule:** set ONCE on first run (initial value = `{project_name}`), then immutable for the project's lifetime. Used for every on-disk identifier (`{config_dir}`, `{data_dir}`, `{log_dir}`, `{cache_dir}`, systemd unit, `{plist_name}`) so a project rename does not orphan paths or services.
+
+**After setup, this section remains reference-only. The placeholders above are resolved from `IDEA.md ## Project variables`; `AI.md` itself stays read-only.**
 
 ---
 
@@ -59,8 +142,8 @@ Free-form prose. This is the human-readable elevator pitch.)
 
 ## Project variables
 
-(All project variables in `key: value` form. Values are the substitutions used to
-expand placeholders in AI.md. Required keys at minimum: `project_name`, `project_org`,
+(All project variables in `key: value` form. Values are the canonical source used to
+resolve placeholders referenced in AI.md. Required keys at minimum: `project_name`, `project_org`,
 `internal_name`. Add more as the project needs — `app_name`, `official_site`,
 `maintainer_name`, `maintainer_email`, etc. Use lower_snake_case for keys.)
 
@@ -72,8 +155,8 @@ Example:
     app_name:      jokes
     official_site: jokes.example.com
 
-**`io.github.casapps.caspbx` is NOT stored** — it is derived at substitution time as
-`io.github.casapps.caspbx`.
+**`{plist_name}` is NOT stored** — it is derived at substitution time as
+`io.github.{project_org}.{internal_name}`.
 
 **`internal_name` rules:**
 
@@ -88,7 +171,7 @@ Example:
 ## Business logic
 
 (Full business spec — the WHAT, not the HOW. Features, data models, user flows,
-permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
+permission rules, business invariants. The HOW lives in AI.md PARTS 0-36; PART 37 is reference-only.)
 ```
 
 **Why three sections, in this order:**
@@ -96,7 +179,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 | Section | Why |
 |---------|-----|
 | `## Project description` | Top — anyone opening IDEA.md sees the project pitch first |
-| `## Project variables` | Middle — extraction tools (and the FIRST-TIME AI.md SETUP flow above) parse this section to substitute `caspbx`, `CASPBX`, `casapps`, etc. throughout AI.md |
+| `## Project variables` | Middle — extraction tools (and the FIRST-TIME PROJECT SETUP flow above) parse this section to resolve `{project_name}`, `{PROJECT_NAME}`, `{project_org}`, etc. when AI.md references them |
 | `## Business logic` | Bottom — the bulk of the file, the actual product spec |
 
 **Rules for `## Project variables`:**
@@ -105,7 +188,54 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 - Keys are **lower_snake_case** only — they match the lowercase placeholders in AI.md
 - The setup flow renders `{KEY_UPPER}` automatically by uppercasing the lowercase key — do NOT list both forms
 - Never guess values: use commands (`basename "$PWD"`, `git config user.email`, `date`, etc.) and confirm with the user
-- If a placeholder appears in AI.md but has no entry in `## Project variables`, the setup flow MUST stop and ask, not invent a value
+- If a placeholder referenced by AI.md has no entry in `## Project variables`, the setup flow MUST stop and ask, not invent a value
+
+**Rules for `## Business logic`:**
+
+- `## Business logic` MUST define the actual product scope, roles, flows, and constraints for THIS project - not generic web-app boilerplate
+- The following subsections are REQUIRED inside `## Business logic` for every project:
+  - `### Product scope & non-goals`
+  - `### Roles & permissions`
+  - `### Data model & sensitivity`
+  - `### Trust boundaries & external services`
+  - `### Threat model & abuse cases`
+  - `### Security decisions & exceptions`
+- `### Threat model & abuse cases` MUST name:
+  - the primary assets being protected
+  - which inputs and integrations are trusted vs untrusted
+  - the main attacker/abuser goals for this project
+  - project-specific abuse cases (spam, scraping, privilege escalation, malicious uploads, SSRF, credential stuffing, etc. as applicable)
+  - the required defenses or explicit non-goals for each meaningful threat
+- If the project depends on an external service, API, webhook, identity provider, payment processor, or network source, `## Business logic` MUST state the trust assumption and failure mode - AI MUST NOT invent one later in code
+- If a security-sensitive choice is intentionally allowed (for example permanent root/admin runtime, external route compatibility, remote fetches, public uploads, or third-party embeds), the reason MUST be documented in `### Security decisions & exceptions`
+
+## Migrating Existing `CLAUDE.md` Into `IDEA.md`
+
+**If a repository already has a pre-template `CLAUDE.md` or `.claude/CLAUDE.md` with real project details, those project details MUST be migrated into `IDEA.md`.**
+
+**What belongs in `IDEA.md`:**
+- project description / elevator pitch
+- project-specific terminology
+- project variables that can be expressed as `key: value`
+- business logic, roles, flows, constraints, trust boundaries, abuse cases, and security exceptions
+
+**What does NOT belong in `IDEA.md`:**
+- generic Claude/Copilot usage instructions
+- loader boilerplate whose job is only to point at `AI.md`
+- duplicated global implementation rules that already live in `AI.md`
+- stale code snippets, one-off notes, or tool-specific chatter with no business/spec value
+
+**Migration rules:**
+1. **Read existing `CLAUDE.md` and `.claude/CLAUDE.md` first** - never overwrite blindly
+2. Extract valid project-specific content and reorganize it into the required `IDEA.md` layout:
+   - `## Project description`
+   - `## Project variables`
+   - `## Business logic`
+3. Normalize discovered variables into lower_snake_case `key: value` entries
+4. If `internal_name` cannot be proven from the existing project state, initialize it to `project_name` on first migration and treat it as frozen after that
+5. If statements from `CLAUDE.md` or `.claude/CLAUDE.md` conflict with `AI.md`, `AI.md` wins; either fix the migrated text or ask the user if the intent is unclear
+6. After migration, keep root `CLAUDE.md` and/or `.claude/CLAUDE.md` only as short efficient loaders and keep the real project plan/spec in `IDEA.md`
+7. Never silently discard meaningful project-specific content; migrate it, trim it, or ask the user where it belongs
 
 ---
 
@@ -153,18 +283,27 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 |---------------|------------|-------------|
 | **IDEA.md** | Actual project features/endpoints | Features added/removed |
 | **README.md** | Current functionality | Usage/installation changes |
-| **docs/** | Current API/config | Any user-facing changes |
+| **docs/** | Current user/admin/API/config/security/integration behavior | Any user-facing, admin-facing, operator-facing, or integration-facing changes |
 | **Swagger annotations** | Actual API endpoints | Routes changed |
 | **GraphQL schema** | Actual types/queries | Schema changed |
 
 **Rules for Updating:**
 
 1. **IDEA.md**: Update business logic, data models, features
-   - AI.md PARTS 0-36 define implementation patterns (do NOT modify)
+   - AI.md PARTS 0-36 define implementation patterns; PART 37 is reference-only (do NOT modify)
    - IDEA.md defines YOUR project's features (update as needed)
 2. **README.md**: Keep feature list and usage examples current
-3. **docs/**: Update when config options or API behavior changes
+3. **docs/**: Update when routes, config options, admin UX, security behavior, auth/integration behavior, or public protocol surfaces change
 4. **Swagger/GraphQL**: Keep annotations matching actual endpoints
+
+## ⚠️ CRITICAL: One Coherent Product ⚠️
+
+**Follow the Unix philosophy at the product level: build one coherent product and do it well.**
+
+- Broad scope is valid when all features serve the SAME core product purpose
+- A GitHub/GitLab-style forge can include repos, issues, PRs, actions, runners, gists, orgs, etc. because they all serve software collaboration/hosting
+- Do NOT add unrelated extras that do not belong to the product's core domain
+- Every feature that is included MUST feel complete, not checkbox-added
 
 **Example - Adding a New Feature:**
 
@@ -172,7 +311,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 1. Write the code (new handler, service, etc.)
 2. Update IDEA.md - add feature description
 3. Update README.md - add feature to list
-4. Update docs/api.md - document new endpoints
+4. Update the relevant docs/*.md pages - API, admin, configuration, security, integrations, or CLI docs as applicable
 5. Add Swagger annotations to new handlers
 6. Update GraphQL schema if applicable
 ```
@@ -212,7 +351,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 | **CGO_ENABLED=0** | ALWAYS. No exceptions. Pure Go only. |
 | **Single static binary** | All assets embedded with Go `embed` package |
 | **8 platforms required** | linux, darwin, windows, freebsd × amd64, arm64 |
-| **Binary naming** | `caspbx-{os}-{arch}` (windows adds `.exe`) |
+| **Binary naming** | `{project_name}-{os}-{arch}` (windows adds `.exe`) |
 | **NEVER use -musl suffix** | Alpine builds are NOT musl-specific |
 | **Build source** | ALWAYS `./src` directory |
 
@@ -224,7 +363,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 
 | Command | Purpose | Output Location | When to Use |
 |---------|---------|-----------------|-------------|
-| `make dev` | **Development & Debugging** | `${TMPDIR}/$CASAPPS/$CASPBX-XXXXXX/` | Active coding, quick tests |
+| `make dev` | **Development & Debugging** | `${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/` | Active coding, quick tests |
 | `make local` | **Production Testing** | `binaries/` (with version) | Test prod builds locally |
 | `make build` | **Full Release** | `binaries/` (all 8 platforms) | Before release |
 | `make test` | **Unit Tests** | Coverage report | After code changes |
@@ -243,11 +382,11 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-36.)
 
 ```bash
 # After make dev, debug in Docker with tools
-BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-*/ 2>/dev/null | head -1)
+BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-*/ 2>/dev/null | head -1)
 docker run --rm -it -v "$BUILD_DIR:/app" alpine:latest sh -c "
   apk add --no-cache curl bash file jq  # Required debug tools
-  /app/caspbx --help
-  /app/caspbx --version
+  /app/{project_name} --help
+  /app/{project_name} --version
   # Interactive debugging...
 "
 ```
@@ -289,10 +428,10 @@ docker run --rm -it -v "$BUILD_DIR:/app" alpine:latest sh -c "
 make dev                # Quick build to temp dir
 
 # 2. Debug in Docker (with tools)
-BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-*/ 2>/dev/null | head -1)
+BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-*/ 2>/dev/null | head -1)
 docker run --rm -it -v "$BUILD_DIR:/app" alpine:latest sh -c "
   apk add --no-cache curl bash file jq
-  /app/caspbx --help
+  /app/{project_name} --help
 "
 
 # 3. Unit tests
@@ -472,10 +611,110 @@ if cacheSize > 1024*1024*1024 {
 |------|-------------|
 | **NEVER use Makefile in CI** | Workflows have explicit commands with all env vars |
 | **GitHub/Gitea/Jenkins must match** | Same platforms, same env vars, same logic |
-| **VERSION from tag** | Strip `v` prefix from semver only: `v1.2.3` → `1.2.3`, `dev` → `dev` |
+| **VERSION precedence** | `release.txt` wins when present; otherwise use the workflow/build-specific fallback (tag, beta timestamp, etc.) |
 | **LDFLAGS** | `-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildDate=...' -X 'main.OfficialSite=...'` |
 | **Docker builds on EVERY push** | Any branch push triggers Docker image build |
 | **Docker tags** | Any push → `devel`, `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Workflow permissions** | Default to read-only / least privilege; grant write only to the specific release/publish job that needs it |
+| **Third-party action pinning** | External actions MUST be pinned to a full commit SHA — never float on `@main`, `@master`, or broad tags; verify runtime and maintenance status on every SHA update |
+| **Unsafe PR triggers forbidden by default** | Do NOT use `pull_request_target` for untrusted code execution, build, test, or artifact upload paths |
+| **Secrets never exposed to forks** | Fork PR workflows run without repo secrets, write tokens, publish steps, or deployment credentials |
+| **Dependency updates are automated** | Public repos include dependency update automation for every ecosystem in use |
+| **Secret scanning is mandatory** | Public repos run automated secret scanning on push/PR and treat findings as blockers |
+| **Release outputs are verifiable** | Releases publish checksums, SBOM, release notes, and provenance/attestation when the host platform supports it |
+
+### Workflow Permissions
+
+Set `contents: read` at the workflow level as the read-only baseline. Grant write permissions only on the specific job that performs the release or publish step — never workflow-wide.
+
+| Permission | Scope | Why |
+|------------|-------|-----|
+| `contents: read` | All jobs (baseline) | Checkout |
+| `contents: write` | Release job only | Create GitHub release, upload assets |
+| `packages: write` | Release job only | Push images to `ghcr.io` |
+| `id-token: write` | Release job only | OIDC token for Sigstore/cosign artifact signing |
+| `attestations: write` | Release job only | GitHub artifact attestation (SBOM, provenance) |
+
+```yaml
+# Workflow-level: read-only baseline
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Inherits read-only — no overrides needed
+    runs-on: ubuntu-latest
+    ...
+
+  release:
+    needs: build
+    permissions:
+      contents: write      # create GitHub release + upload assets
+      packages: write      # push to ghcr.io
+      id-token: write      # OIDC token for cosign signing
+      attestations: write  # GitHub artifact attestations (SBOM, provenance)
+    ...
+```
+
+Third-party registry publishing uses repository secrets, not GitHub token permissions (e.g. `NODE_AUTH_TOKEN` for npm).
+
+### Third-party Action Pinning
+
+Every external action (`uses: owner/action@...`) MUST be pinned to a full commit SHA — never a mutable tag or branch:
+
+```yaml
+# Wrong — tag can silently change or be deleted
+- uses: actions/checkout@v4
+
+# Correct — SHA is immutable
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+```
+
+**When updating a pinned SHA**, verify three things:
+
+1. **Action is still maintained** — check the upstream repo is not archived, deprecated, or abandoned
+2. **Runtime is still supported** — open the action's `action.yml` at the new SHA and check `runs.using`; if it names a runtime that GitHub has deprecated or scheduled for removal, the action will silently fail after that date. Example: `node20` is removed from GitHub-hosted runners on **2026-09-16** — any action still on `node20` must be updated to a SHA where it has migrated to `node24` — all common `actions/*` and `docker/*` actions have already done so
+3. **No supply-chain change** — skim the diff between the old and new SHA; unexpected new dependencies, changed entrypoints, or network calls added to setup steps are red flags
+
+Dependabot covers `github-actions` ecosystem updates automatically when `.github/dependabot.yml` is configured — but it only updates the SHA, not the runtime verification. The runtime check is always manual.
+
+### Public Repository Governance
+
+- The default branch MUST be protected
+- Protected branch rules MUST require:
+  - pull requests for normal changes
+  - passing build/test/security checks before merge
+  - CODEOWNERS review for owned paths
+  - force-push and branch-deletion protection
+- Direct pushes to the default branch are forbidden except explicit maintainer emergency action; emergency bypasses MUST be followed by an audit/fix pass
+
+### Public Repository Workflow Requirements
+
+- Public repos MUST provide at minimum:
+  - `.github/workflows/build.yml` - build, test, coverage, and repo validation
+  - `.github/workflows/release.yml` - tagged/manual release build and publish
+  - `.github/workflows/security.yml` - secret scanning, dependency/security checks, and workflow policy checks
+- If the project also supports Gitea/Forgejo or Jenkins, the equivalent workflows/pipelines MUST enforce the same gates - not a weaker subset
+- CI MUST fail when required tests, coverage gates, secret scans, dependency checks, or release validation fail
+
+### Dependency Update Policy
+
+- Public repos MUST define `.github/dependabot.yml`
+- Dependabot MUST cover, when used by the repo:
+  - Go modules
+  - GitHub Actions
+  - Docker / container base images
+- Security updates are high priority and MUST go through the same test/security gates as manual changes
+- AI MUST NOT silently change dependency strategy, ignore failing update PRs, or disable update automation to "get green"
+
+### Release Integrity
+
+- Tagged releases MUST publish a machine-readable checksum file for all release artifacts (SHA-256)
+- Tagged releases MUST publish release notes that describe the actual change set and call out breaking changes explicitly
+- Public releases MUST include a release-level SBOM (`CycloneDX` or `SPDX JSON`)
+- Where the platform supports it, releases MUST include build provenance / artifact attestation
+- AI MUST NOT fake signatures, fake attestations, or claim a release is signed/verified when the required keys/platform support do not exist
+- If signing or attestation is required by the project but the necessary keys/permissions are unavailable, AI MUST stop and ask instead of bypassing the control
 
 ## Database Rules
 
@@ -522,7 +761,8 @@ src/agent/                  # Agent (OPTIONAL - monitoring/management projects o
 docker/                     # Docker files (REQUIRED)
 docker/Dockerfile           # Multi-stage Dockerfile
 docker/docker-compose.yml   # Production docker-compose
-docker/file_system/              # BUILD-TIME overlay (entrypoint.sh) - NOT runtime volumes
+docker/rootfs/              # BUILD-TIME container filesystem overlay (entrypoint.sh, service configs)
+volumes/                    # RUNTIME volume data if created locally (gitignored)
 binaries/                   # Build output (gitignored)
 releases/                   # Release artifacts (gitignored)
 ```
@@ -530,7 +770,8 @@ releases/                   # Release artifacts (gitignored)
 **Notes:**
 - `src/client/` is REQUIRED for all projects (client binary is mandatory). See PART 33 for client details.
 - `src/agent/` is OPTIONAL (only for monitoring/management projects). See PART 33 for agent details.
-- `docker/file_system/` is for BUILD-TIME container overlay (copied into image). Runtime volumes (`./rootfs/config`, `./rootfs/data`) are NEVER in the repo - they exist only where docker-compose runs (production server or temp dir).
+- `docker/rootfs/` is the BUILD-TIME container overlay (copied into image).
+- Runtime volumes use `./volumes/config` and `./volumes/data` relative to where `docker run` or `docker compose` is executed; they are NEVER committed to the repo.
 
 ## File & Directory Naming Conventions
 
@@ -752,7 +993,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | **Config files** | lowercase, dot-extension | `server.yml`, `mkdocs.yml` | `SERVER.yml` |
 | **Documentation** | UPPERCASE.md | `README.md`, `LICENSE.md` | `readme.md` |
 | **Scripts** | lowercase, snake_case | `run_tests.sh` | `RunTests.sh` |
-| **Binaries** | `caspbx-{os}-{arch}` | `echoip-linux-amd64` | `echoip_linux_amd64` |
+| **Binaries** | `{project_name}-{os}-{arch}` | `echoip-linux-amd64` | `echoip_linux_amd64` |
 
 ### NEVER Create These Files
 
@@ -760,9 +1001,9 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 |----------------|--------|
 | `SUMMARY.md` | Unnecessary - AI.md is the spec |
 | `COMPLIANCE.md` | Unnecessary - compliance is in AI.md |
-| `NOTES.md` | Unnecessary - notes go in AI.md |
+| `NOTES.md` | Unnecessary - use `PLAN.md`, `PLAN.AI.md`, `TODO.md`, or `TODO.AI.md` as appropriate |
 | `CHANGELOG.md` | Use GitHub/Gitea releases instead |
-| `AUDIT.md`, `REPORT.md`, `ANALYSIS.md` | Fix issues directly, don't document them |
+| `AUDIT.md`, `REPORT.md`, `ANALYSIS.md` | Don't create report-only docs. Fix issues directly. Temporary `AUDIT.AI.md` is the explicit-audit exception |
 | `CONTRIBUTING.md` in root | Belongs in `.github/` |
 | `CODE_OF_CONDUCT.md` in root | Belongs in `.github/` |
 | `SECURITY.md` in root | Belongs in `.github/` |
@@ -772,7 +1013,6 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | `*.example.*`, `*.sample.*` | No example files (defaults in binary) |
 | `server.yml`, `cli.yml` | Config files are runtime-generated, never in repo |
 | `.env*` | No .env files |
-| `TODO.md` | Use `TODO.AI.md` for AI tasks only |
 
 ### NEVER Create These Directories
 
@@ -781,7 +1021,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | `config/` in root | Config is embedded, runtime-generated in OS dirs |
 | `data/` in root | Data goes to OS data directory at runtime |
 | `logs/` in root | Logs go to OS log directory at runtime |
-| `tmp/`, `temp/` in root | Use `/tmp/casapps/caspbx-XXXXXX/` |
+| `tmp/`, `temp/` in root | Use `/tmp/{project_org}/{internal_name}-XXXXXX/` |
 | `test-data/` in root | Test data goes to temp directories |
 | `build/`, `dist/`, `out/` | Use `binaries/` (gitignored) |
 | `vendor/` | Use Go modules, not vendoring |
@@ -797,10 +1037,13 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 |------|:--------:|---------|
 | `AI.md` | ✓ | Project specification (HOW - implementation patterns) |
 | `IDEA.md` | ✓ | Project idea (WHAT - business logic, features) |
-| `CLAUDE.md` | Optional | Claude Code AI configuration and settings |
-| `PLAN.md` | Optional | Human implementation plan |
-| `TODO.AI.md` | Optional | AI task tracking (3+ tasks only) |
-| `PLAN.AI.md` | Optional | AI implementation plan (if exists, this is THE plan) |
+| `CLAUDE.md` | ✓ | Claude Code quick loader - critical rules + references into `AI.md` |
+| `PLAN.md` | Optional | Project plan — human edits/owns. AI reads, interprets, executes, and marks items done in place. Never rewrite or restructure |
+| `PLAN.AI.md` | Optional | Project plan — AI creates/updates. If it exists, this is THE plan |
+| `TODO.md` | Optional | Task list — human edits/owns. AI reads, interprets, executes, and marks items done in place. Never delete, empty, or restructure |
+| `TODO.AI.md` | Optional | Task list — AI creates/updates (3+ tasks only) |
+
+**Why two variants of PLAN/TODO exist:** humans and AI write tasks at different levels of detail. A human might write `[ ] fix bugs`; AI would write a structured task with reproduction steps, acceptance criteria, and file paths. The split lets each party use their natural style. **AI's job with human files:** read terse items, figure out what they mean (investigate, propose, ask if genuinely unclear — don't refuse for being short), do the work, then check the box. AI must NOT "improve" the wording into AI-style verbose form. The completion rituals (`TODO.AI.md` ✅ empty, `PLAN.AI.md` "Fully Implemented" rewrite) apply only to the AI-owned variants.
 | `README.md` | ✓ | Public documentation |
 | `LICENSE.md` | ✓ | License file |
 | `Makefile` | ✓ | Build targets |
@@ -924,9 +1167,9 @@ paths:
 ## TERMINOLOGY
 | Term | Meaning |
 |------|---------|
-| server | Main binary `caspbx` - runs as service |
-| client | CLI binary `caspbx-cli` - REQUIRED |
-| agent | Optional binary `caspbx-agent` |
+| server | Main binary `{project_name}` - runs as service |
+| client | CLI binary `{project_name}-cli` - REQUIRED |
+| agent | Optional binary `{project_name}-agent` |
 | Server Admin | App administrator (NOT OS root) |
 | Regular User | End-user (PART 34, optional feature) |
 
@@ -982,7 +1225,7 @@ For complete details, see AI.md PART 0, 1
 | /server/help | IDEA.md → real endpoints, real curl examples, real FAQ |
 | /server/privacy | Config → `server.privacy.*` settings |
 | /server/terms | Config → customizable, default template |
-| /server/contact | Config → `server.contact` settings |
+| /server/contact | Config → `server.contact.general.*` + `server.pages.contact.*` settings |
 
 ## SERVER VS CLIENT
 | Task | Where | Why |
@@ -1086,12 +1329,33 @@ Each AI tool directory MUST have a project memory file containing critical rules
 
 **Claude Code Note:** Claude prefers `CLAUDE.md` at project root (discovered recursively). `.claude/CLAUDE.md` is an alternate location. Personal preferences go in `CLAUDE.local.md` (auto-gitignored).
 
+**Role of `CLAUDE.md`:** root `CLAUDE.md` and `.claude/CLAUDE.md` are **efficient loaders**, not the full spec. They MUST stay short and point back to `AI.md`, which remains the source of truth.
+
+**If `CLAUDE.md` or `.claude/CLAUDE.md` already exists:**
+- **READ both first** - NEVER overwrite blindly
+- If a file already uses the standard loader marker/header, treat it as the canonical loader format
+- If a file already matches the expected loader structure, leave it alone except for needed spec-reference refreshes
+- If a file already contains valid project rules/spec references, **preserve and merge** that content into the new efficient-loader structure
+- Keep project-specific MUST/NEVER rules, terminology, and workflow notes
+- Move project-specific description/variables/business logic into `IDEA.md`
+- Move long-form implementation/spec content into `AI.md` or `.claude/rules/*.md` as appropriate, then leave root `CLAUDE.md` / `.claude/CLAUDE.md` as short loaders
+- If existing root `CLAUDE.md` or `.claude/CLAUDE.md` conflicts with `AI.md`, then `AI.md` wins; update the loader file to reference the canonical rule instead of duplicating stale text
+- Loader files must end up short and efficient, but valid existing guidance must be migrated, not discarded
+
 **Required Content Structure (~50-100 lines max):**
 
 ```markdown
-# CASPBX - AI Quick Reference
+# Project SPEC
+
+Project: {PROJECT_NAME}
+Role: Efficient loader for AI.md
 
 ⚠️ **THIS FILE IS AUTO-LOADED EVERY CONVERSATION. FOLLOW IT EXACTLY.** ⚠️
+
+Purpose:
+- This file is a short loader for the most important rules
+- `AI.md` is the full source of truth
+- For complete details, read the referenced PARTs in `AI.md`
 
 ## FIRST TURN - MANDATORY
 
@@ -1104,9 +1368,24 @@ On EVERY new conversation or after "context compacted" message:
 
 ## Asking Questions
 
-- **Never guess** - if unsure, ASK the user
+- **Default to continuing work** - do not stop just to ask whether you should continue; if the next step is implied by the spec, the current task, or the current findings, continue
+- **Never guess** - if the answer cannot be determined from `AI.md`, `IDEA.md`, the codebase, or repo state **and** the missing information materially changes behavior, scope, or safety, ASK the user
+- **Do NOT ask for permission to keep going** - continue until the current task is complete, blocked by a real decision, or the user explicitly asks to pause
 - **Question mark = question** - when user ends with `?`, answer/clarify, don't execute
 - **Use AskUserQuestion wizard** - presents one question at a time with options + "Other" for custom input + Submit/Cancel; layout varies by context (yes/no, multi-select, with descriptions); less overwhelming than plain text questions
+
+**Ask only when at least one of these is true:**
+1. A required business/product decision is missing
+2. Two or more reasonable implementations would produce materially different behavior
+3. The action is destructive, irreversible, or impacts production/user data beyond normal safe development work
+4. The spec explicitly says to ask or confirm
+5. The user explicitly requested a plan, pause, or checkpoint before execution
+
+**Do NOT ask just to confirm routine continuation:**
+- after finishing one obvious sub-step and the next step is clear
+- before running normal repo validations/checks already implied by the task
+- before making tightly related follow-up edits required to keep the spec internally consistent
+- before updating related docs/checklists/examples required by the same change
 
 ## Before ANY Code Change
 
@@ -1118,13 +1397,13 @@ On EVERY new conversation or after "context compacted" message:
 **WHEN IN DOUBT: READ THE SPEC. DO NOT GUESS.**
 
 ## Binary Terminology
-- **server** = `caspbx` (main binary, runs as service)
-- **client** = `caspbx-cli` (REQUIRED companion, CLI/TUI/GUI)
-- **agent** = `caspbx-agent` (optional, runs on remote machines)
+- **server** = `{project_name}` (main binary, runs as service)
+- **client** = `{project_name}-cli` (REQUIRED companion, CLI/TUI/GUI)
+- **agent** = `{project_name}-agent` (optional, runs on remote machines)
 
 ## Key Placeholders
-- `caspbx` = [actual project name]
-- `casapps` = [organization name]
+- `{project_name}` = [actual project name]
+- `{project_org}` = [organization name]
 - `{admin_path}` = [admin URL path, default: admin]
 
 ## Account Types (CRITICAL)
@@ -1155,7 +1434,7 @@ On EVERY new conversation or after "context compacted" message:
 14. Skip validation → Server validates EVERYTHING
 15. Implement without reading spec → Read relevant PART first
 16. Modify TEMPLATE.md or AI.md PART 0-33 content → READ-ONLY SPEC. Project changes go in IDEA.md. The ONLY edits permitted to TEMPLATE.md/AI.md are flipping PARTS 34-36 OPTIONAL→REQUIRED for projects that adopt those features (see PARTS 34-36 flip mechanism)
-17. Edit `## Project variables` in IDEA.md without confirming with the user → Variables drive substitution into AI.md; wrong values silently corrupt every reference
+17. Edit `## Project variables` in IDEA.md without confirming with the user → Variables drive placeholder resolution used by AI.md; wrong values silently corrupt every reference
 18. Read an image larger than 1000×1000 directly into context → Resize to ≤1000×1000 first via the fallback chain (`magick` → `convert` → `gm convert` → `vipsthumbnail` → `sips` → `ffmpeg`). If none are available, do NOT read the image — tell the user which tool to install. See "Large Image Handling" below.
 19. Use a non-conforming IDEA.md without migration → If IDEA.md exists but lacks the three required sections (`## Project description`, `## Project variables`, `## Business logic`), STOP and migrate it before doing anything else. See "IDEA.md Migration" below.
 
@@ -1195,6 +1474,7 @@ On EVERY new conversation or after "context compacted" message:
 - Keep it under 100 lines - it's a quick reference, not the full spec
 - Points to rules/ files and AI.md for details
 - "Current Project State" section updated by AI as work progresses
+- Existing valid `CLAUDE.md` content must be merged/migrated, not blindly replaced
 
 **AI Enforcement - Surviving Context Compaction:**
 
@@ -1253,7 +1533,7 @@ For complete details, see AI.md PART X, Y, Z
 | rules/*.md | Auto-loaded every turn | Detailed rules per topic |
 | AI.md | Must be read by AI | Full specification (source of truth) |
 
-**Key principle:** Put the most critical rules in CLAUDE.md and rules files (auto-loaded). These survive context compaction. AI.md is the full spec but must be explicitly read.
+**Key principle:** Put only the most critical rules and the right `AI.md` references in `CLAUDE.md`. Keep it efficient. `AI.md` is the full spec and source of truth.
 
 **4. Enforcement Language:**
 
@@ -1528,11 +1808,11 @@ Instructions for how this agent should behave...
 | Directory | Required | Purpose | Gitignored |
 |-----------|:--------:|---------|:----------:|
 | `src/` | ✓ | All Go source code | No |
-| `docker/` | ✓ | Dockerfile, compose files, rootfs overlay | No |
+| `docker/` | ✓ | Dockerfile, compose files, and build-time `rootfs/` overlay | No |
 | `docs/` | ✓ | MkDocs documentation only | No |
 | `scripts/` | ✓ | Production/install scripts | No |
-| `tests/` | ✓ | Test scripts (run_tests.sh, docker.sh, incus.sh) | No |
-| `.github/` | If GitHub | GitHub Actions, templates | No |
+| `tests/` | ✓ | Repository-root executable integration test scripts (`run_tests.sh`, `docker.sh`, `incus.sh`, optional helpers). Go unit tests live alongside code as `*_test.go` | No |
+| `.github/` | If GitHub / public repo | GitHub Actions, community files, templates | No |
 | `.gitea/` | If Gitea | Gitea Actions, templates | No |
 | `.claude/` | Auto | Claude Code config (regenerated) | **Yes** |
 | `.cursor/` | Auto | Cursor AI config (regenerated) | **Yes** |
@@ -1541,7 +1821,7 @@ Instructions for how this agent should behave...
 | `.windsurf/` | Auto | Windsurf AI config (regenerated) | **Yes** |
 | `binaries/` | Auto | Build output | **Yes** |
 | `releases/` | Auto | Release artifacts | **Yes** |
-| `rootfs/` | Auto | Runtime volume data | **Yes** |
+| `volumes/` | Auto | Runtime volume data (if created locally) | **Yes** |
 
 **RULE: If a directory doesn't appear in this list, it MUST NOT exist - ask before creating.**
 
@@ -1575,10 +1855,90 @@ Instructions for how this agent should behave...
 | `CONTRIBUTING.md` | `.github/CONTRIBUTING.md` |
 | `CODE_OF_CONDUCT.md` | `.github/CODE_OF_CONDUCT.md` |
 | `SECURITY.md` | `.github/SECURITY.md` |
+| `CODEOWNERS` | `.github/CODEOWNERS` |
+| `dependabot.yml` | `.github/dependabot.yml` |
 | `FUNDING.yml` | `.github/FUNDING.yml` |
 | `ISSUE_TEMPLATE/` | `.github/ISSUE_TEMPLATE/` |
 | `PULL_REQUEST_TEMPLATE.md` | `.github/PULL_REQUEST_TEMPLATE.md` |
 | `workflows/*.yml` | `.github/workflows/` |
+
+**Public Repository Rule:**
+- Public/community-facing repositories MUST include the full community/support set in `.github/`
+- At minimum, define and keep updated:
+  - `.github/CONTRIBUTING.md`
+  - `.github/CODE_OF_CONDUCT.md`
+  - `.github/SECURITY.md`
+  - `.github/CODEOWNERS`
+  - `.github/dependabot.yml`
+  - `.github/ISSUE_TEMPLATE/bug_report.md`
+  - `.github/ISSUE_TEMPLATE/feature_request.md`
+  - `.github/ISSUE_TEMPLATE/config.yml`
+  - `.github/PULL_REQUEST_TEMPLATE.md`
+  - `.github/workflows/build.yml`
+  - `.github/workflows/release.yml`
+  - `.github/workflows/security.yml`
+- These files are templates/project policy files: define them once in the template, then update them to match the actual project
+- `FUNDING.yml` remains optional
+
+**Community File Content Rules:**
+- All `.github/` policy/template files MUST contain project-specific real values - never `@yourname`, `security@example.com`, `TBD`, `coming soon`, or placeholder support URLs
+- Maintainer handles, contact addresses, repo paths, workflow names, and support links MUST come from project variables, actual repo state, or explicit user input
+- If the project has `/.well-known/security.txt`, `/server/contact`, docs pages, issue labels, or release workflows, `.github/` files MUST reference those exact real paths/names
+
+**Required Contents by File:**
+- `.github/CONTRIBUTING.md` MUST define:
+  - local setup/build/test/docs commands that actually exist in the repo
+  - branch/PR workflow
+  - requirement to update tests/docs with code changes
+  - where to send vulnerabilities instead of opening a public issue
+- `.github/SECURITY.md` MUST define:
+  - supported versions or supported release policy
+  - the security reporting path
+  - that vulnerabilities are NOT filed as public bug reports
+  - expected disclosure/response flow
+  - links to `/.well-known/security.txt` and `/server/contact?security_id=...` when those project features exist
+- `.github/CODEOWNERS` MUST define:
+  - a catch-all owner for the repo
+  - explicit owners for security-sensitive areas such as workflows, Docker/release files, and auth/crypto/update code paths
+- `.github/dependabot.yml` MUST define:
+  - update schedules for every ecosystem actually used by the repo
+  - labels/assignees/reviewers if the project uses them
+  - sane open-PR limits and grouping rules
+- `.github/ISSUE_TEMPLATE/bug_report.md` MUST collect:
+  - version/commit
+  - environment/platform
+  - expected behavior
+  - actual behavior
+  - reproducible steps
+  - relevant logs/screenshots with redaction reminder
+  - whether the report may have security impact
+- `.github/ISSUE_TEMPLATE/feature_request.md` MUST collect:
+  - the problem to solve
+  - the desired behavior
+  - the use case / target user
+  - constraints or non-goals
+  - compatibility expectations (feature parity by default; route/API parity only when explicitly requested)
+- `.github/ISSUE_TEMPLATE/config.yml` MUST:
+  - disable blank issues
+  - route support requests to docs/discussions/contact
+  - route vulnerabilities to the security reporting flow instead of public issues
+- `.github/PULL_REQUEST_TEMPLATE.md` MUST require:
+  - summary of change
+  - why the change exists
+  - test evidence
+  - docs/config updates
+  - breaking-change note
+  - security/privacy impact note
+  - checklist confirming no placeholder/stub/TODO behavior was introduced
+- `.github/workflows/build.yml` MUST verify real build/test/lint/coverage rules from the repo
+- `.github/workflows/release.yml` MUST produce the real release artifacts, checksums, release notes, and any required publish steps
+- `.github/workflows/security.yml` MUST enforce secret scanning, dependency/security validation, and workflow hardening checks
+
+**Code of Conduct Rule:**
+- For **public/community-facing repositories**, `.github/CODE_OF_CONDUCT.md` MUST exist
+- For **private/internal-only repositories**, it is OPTIONAL
+- NEVER place `CODE_OF_CONDUCT.md` in project root
+- Use a short, standard community conduct policy; do not invent unusual project-specific behavior rules unless the project explicitly needs them
 
 ### Gitea-Specific Files (`.gitea/` directory)
 
@@ -1602,10 +1962,10 @@ Instructions for how this agent should behave...
 
 | Placeholder | Description | Example |
 |-------------|-------------|---------|
-| `caspbx` | Project name (lowercase, no spaces/hyphens) | `jokes`, `echoip`, `pastebin` |
-| `casapps` | Organization/owner name (lowercase) | `sneak`, `acme`, `mycompany` |
+| `{project_name}` | Project name (lowercase, no spaces/hyphens) | `jokes`, `echoip`, `pastebin` |
+| `{project_org}` | Organization/owner name (lowercase) | `sneak`, `acme`, `mycompany` |
 | `{projectversion}` | Current version (semver format) | `1.0.0`, `2.3.1` |
-| `CASPBX` | Uppercase project name (for constants, env vars) | `JOKES`, `ECHOIP` |
+| `{PROJECT_NAME}` | Uppercase project name (for constants, env vars) | `JOKES`, `ECHOIP` |
 | `{official_site}` | Official project website | `https://jokes.example.com` |
 | `{fqdn}` | Fully qualified domain name | `api.example.com` |
 | `{baseurl}` | URL path prefix (auto-detected from reverse proxy) | `/`, `/myproject` |
@@ -1614,17 +1974,17 @@ Instructions for how this agent should behave...
 
 **Directory placeholders (with platform-specific defaults):**
 
-**All on-disk paths use `caspbx` (frozen identity), not `caspbx` (mutable).** A project rename never moves these directories.
+**All on-disk paths use `{internal_name}` (frozen identity), not `{project_name}` (mutable).** A project rename never moves these directories.
 
 | Placeholder | Linux/BSD Default | macOS Default | Windows Default |
 |-------------|-------------------|---------------|-----------------|
-| `{config_dir}` | `/etc/casapps/caspbx` | `/Library/Application Support/casapps/caspbx` | `%PROGRAMDATA%\casapps\caspbx` |
-| `{data_dir}` | `/var/lib/casapps/caspbx` | `/Library/Application Support/casapps/caspbx` | `%PROGRAMDATA%\casapps\caspbx` |
+| `{config_dir}` | `/etc/{project_org}/{internal_name}` | `/Library/Application Support/{project_org}/{internal_name}` | `%PROGRAMDATA%\{project_org}\{internal_name}` |
+| `{data_dir}` | `/var/lib/{project_org}/{internal_name}` | `/Library/Application Support/{project_org}/{internal_name}` | `%PROGRAMDATA%\{project_org}\{internal_name}` |
 | `{db_dir}` | `{data_dir}/db/` | `{data_dir}/db/` | `{data_dir}\db\` |
-| `{log_dir}` | `/var/log/casapps/caspbx` | `/Library/Logs/casapps/caspbx` | `%PROGRAMDATA%\casapps\caspbx\logs` |
-| `{cache_dir}` | `/var/cache/casapps/caspbx` | `/Library/Caches/casapps/caspbx` | `%PROGRAMDATA%\casapps\caspbx\cache` |
-| `{backup_dir}` | `/mnt/Backups/casapps/caspbx` | `/Library/Application Support/casapps/caspbx/backups` | `%PROGRAMDATA%\casapps\caspbx\backups` |
-| `{pid_file}` | `/var/run/casapps/caspbx.pid` | `/var/run/casapps/caspbx.pid` | N/A (Windows uses SCM) |
+| `{log_dir}` | `/var/log/{project_org}/{internal_name}` | `/Library/Logs/{project_org}/{internal_name}` | `%PROGRAMDATA%\{project_org}\{internal_name}\logs` |
+| `{cache_dir}` | `/var/cache/{project_org}/{internal_name}` | `/Library/Caches/{project_org}/{internal_name}` | `%PROGRAMDATA%\{project_org}\{internal_name}\cache` |
+| `{backup_dir}` | `/mnt/Backups/{project_org}/{internal_name}` | `/Library/Application Support/{project_org}/{internal_name}/backups` | `%PROGRAMDATA%\{project_org}\{internal_name}\backups` |
+| `{pid_file}` | `/var/run/{project_org}/{internal_name}.pid` | `/var/run/{project_org}/{internal_name}.pid` | N/A (Windows uses SCM) |
 
 **Note:** In Docker containers, `{db_dir}` is `/data/db/sqlite` (see Docker paths section).
 
@@ -1634,9 +1994,9 @@ Instructions for how this agent should behave...
 
 | Term | Default Binary Name | Description |
 |------|---------------------|-------------|
-| **server** | `caspbx` | The main application binary - runs as service/daemon, serves API/WebUI |
-| **client** | `caspbx-cli` | Required companion binary - terminal interface with CLI/TUI/GUI modes |
-| **agent** | `caspbx-agent` | Optional companion binary - runs on remote machines, reports to server |
+| **server** | `{project_name}` | The main application binary - runs as service/daemon, serves API/WebUI |
+| **client** | `{project_name}-cli` | Required companion binary - terminal interface with CLI/TUI/GUI modes |
+| **agent** | `{project_name}-agent` | Optional companion binary - runs on remote machines, reports to server |
 
 **Renaming behavior:**
 - Renaming a binary (e.g., `cp jokes myjokes`) changes user-visible output (help text, banners, User-Agent)
@@ -1675,7 +2035,8 @@ This distinction exists for clarity. When referring to OS-level resources that b
 | **Cluster** | Multiple app instances sharing config and state via shared database/cache |
 | **Cluster Node** | An app instance participating in a cluster (synonym: cluster member) |
 | **Config Sync** | Automatic propagation of settings changes across all cluster nodes |
-| **Primary Node** | The elected node that handles cluster-wide tasks (leader election) |
+| **Primary Node** | The elected cluster node that handles cluster-wide tasks |
+| **Secondary Node** | Any non-primary cluster node in the cluster |
 | **Single Instance** | App running standalone without clustering (local SQLite, no shared state) |
 
 ## Extended Functionality Terms
@@ -1688,7 +2049,8 @@ This distinction exists for clarity. When referring to OS-level resources that b
 | **Agent Token** | Scoped API token for agents - includes owner prefix (`adm_agt_`, `usr_agt_`, `org_agt_`) |
 | **Rate Limiting** | Server protection against abuse/DDoS - NOT usage limits for monetization (we never do that) |
 | **Background Job** | Server-side scheduled or queued task (backup, sync, cleanup) - managed by internal scheduler, NOT cron |
-| **Leader Election** | Process where cluster nodes elect a Primary Node for cluster-wide tasks |
+| **Primary Election** | Process where cluster nodes elect a Primary Node for cluster-wide tasks |
+| **Canonical Terms Only** | New rules, docs, config, APIs, and UI MUST use the current canonical name only. Do NOT add legacy/compatibility aliases, duplicate terms, or migration wording unless the user explicitly asks for a migration feature. |
 
 ## Managed Nodes vs Cluster Nodes
 
@@ -1739,7 +2101,7 @@ This distinction exists for clarity. When referring to OS-level resources that b
 
 | Term | Definition |
 |------|------------|
-| **Server Web Setup** | Web-based setup flow at `/{admin_path}/server/setup` (HTML pages served by server, accessed in browser) - creates Primary Admin, customizes branding |
+| **Server Web Setup** | Web-based setup flow at `/server/{admin_path}/config/setup` (HTML pages served by server, accessed in browser) - creates Primary Admin, customizes branding |
 | **CLI Setup Wizard** | Built-in TUI/GUI wizard in CLI binary - prompts for server URL, tests connection, saves config (CLI is the ONLY binary with a built-in wizard) |
 | **Setup Token** | One-time 32-char hex token generated on server first-run, displayed in console, required to access server's web-based setup |
 
@@ -1759,7 +2121,7 @@ This distinction exists for clarity. When referring to OS-level resources that b
 | **TUI** | Terminal User Interface - interactive terminal app with menus/panels (client supports TUI mode) |
 | **Text Browsers** | INTERACTIVE browsers (lynx, w3m, links, elinks) that receive **no-JS HTML** and render it in text mode; NO JavaScript support - forms via POST, server-rendered only |
 | **HTTP Tools** | NON-INTERACTIVE tools (curl, wget, httpie) that receive pre-formatted text via HTML2TextConverter; they just dump output |
-| **Admin Panel** | WebUI at `/{admin_path}` for server administration (path is configurable, default: `admin`) |
+| **Admin Panel** | WebUI at `/server/{admin_path}` for server administration (path is configurable, default: `admin`) |
 | **WebUI** | Web User Interface - browser-based interface served by the server |
 | **SCM** | Windows Service Control Manager - manages Windows services (replaces PID files on Windows) |
 | **Hostname** | Short hostname (e.g., `web01`) - equivalent to `hostname -s` |
@@ -1774,22 +2136,38 @@ This distinction exists for clarity. When referring to OS-level resources that b
 
 | Purpose | Endpoints | Access | Format |
 |---------|-----------|--------|--------|
-| **Public server status/info** | `/healthz`, `/api/{api_version}/healthz` | **PUBLIC** | HTML/JSON/text |
+| **Public server status/info** | `/server/healthz`, optional `/healthz`, `/api/{api_version}/server/healthz` | **PUBLIC** | HTML/JSON/text |
 | **Prometheus metrics** | `/metrics` | **INTERNAL** | Prometheus text exposition (everything) |
 
 **Endpoints:**
 
 | Endpoint | Description |
 |----------|-------------|
-| `/healthz` | Frontend route - content negotiation (HTML for browsers, JSON for API clients, text for CLI) |
-| `/api/{api_version}/healthz` | API route - always JSON |
+| `/server/healthz` | Frontend route - content negotiation (HTML for browsers, JSON for API clients, text for CLI) |
+| `/healthz` | Optional root alias for `/server/healthz` when `server.healthz.root.enabled: true` |
+| `/api/{api_version}/server/healthz` | API route - JSON by default; text via standard API text rules |
 | `/metrics` | Prometheus - all metrics, internal only |
+
+**Optional root health alias:**
+
+```yaml
+server:
+  healthz:
+    root:
+      enabled: false   # When true, mount /healthz to the SAME handler as /server/healthz
+```
+
+- Default is `false`
+- This exists for integrations that require a root-level `/healthz`
+- When enabled, `/healthz` MUST be a direct handler mapping to `/server/healthz`
+- NEVER redirect `/healthz` → `/server/healthz`
+- `/server/healthz` remains the canonical documented route even when `/healthz` is enabled
 
 **Key differences:**
 
 | Aspect | Public Status (PART 13) | Prometheus Metrics (PART 21) |
 |--------|-------------------------|------------------------------|
-| **Endpoints** | `/healthz`, `/api/{api_version}/healthz` | `/metrics` |
+| **Endpoints** | `/server/healthz`, optional `/healthz`, `/api/{api_version}/server/healthz` | `/metrics` |
 | **Visibility** | Public internet | Internal network only |
 | **Authentication** | None | Optional bearer token |
 | **Data** | Public-safe status/info only | Everything (all telemetry) |
@@ -1968,7 +2346,8 @@ grep -n "^|" AI.md | head -50
 1. **Search with grep** - use multiple keywords
 2. **Check related PARTs** - information may be in adjacent sections
 3. **Read the FINAL CHECKPOINT** - summary of all requirements
-4. **ASK the user** - don't guess
+4. **Continue researching or implementing the non-ambiguous parts**
+5. **ASK the user only if the unresolved point is actually blocking** - don't guess
 
 ---
 
@@ -1982,7 +2361,7 @@ grep -n "^|" AI.md | head -50
 
 | Section | Purpose | Modify? |
 |---------|---------|---------|
-| **AI.md (PARTS 0-37)** | Implementation patterns, standards, rules | **NEVER** |
+| **AI.md (PARTS 0-36 + PART 37 reference)** | Implementation patterns, standards, rules, and reference material | **NEVER** |
 | **IDEA.md** | Your project's business logic, features | **YES** - update as project evolves |
 
 **Rules:**
@@ -2014,7 +2393,7 @@ grep -n "^|" AI.md | head -50
 | **Verify before claim** | NEVER say "done" without verification |
 | **Test before commit** | Run tests, check output |
 | **One thing at a time** | Complete current task before starting next |
-| **No silent fixes** | If you find an issue, report it first |
+| **No silent fixes** | Surface the issue in your response, then fix it unless the user asked for report-only analysis |
 | **No partial work** | Finish what you start or explicitly say it's incomplete |
 
 ### The Cost of Guessing
@@ -2148,8 +2527,8 @@ Before I proceed, can you confirm [specific question]?
 | **AI.md is source of truth** | ALWAYS read relevant PART before implementing. NEVER guess. |
 | **Re-read before every task** | Spec drift is #1 cause of violations. Combat it actively. |
 | **IDEA.md = WHAT** | Business logic, data models, features |
-| **AI.md (PARTS 0-37) = HOW** | Implementation patterns, standards |
-| **No report files** | Fix issues directly. No AUDIT.md, COMPLIANCE.md, SUMMARY.md, etc. |
+| **AI.md (PARTS 0-36 = HOW; PART 37 = reference)** | Implementation patterns, standards |
+| **No report files** | Fix issues directly. No AUDIT.md, COMPLIANCE.md, SUMMARY.md, etc. Temporary `AUDIT.AI.md` is allowed only for explicit audits and must be deleted when resolved |
 
 ### Mandatory Workflow
 
@@ -2168,10 +2547,15 @@ Before I proceed, can you confirm [specific question]?
 
 ```
 1. Read AI.md PART 0 and PART 1 completely
-2. Check if .claude/rules/ directory exists
-3. If missing or outdated: CREATE/UPDATE all rule files (see table below)
-4. If TODO.AI.md exists: read and check for needed updates
-5. Commit all COMMIT, NEVER, and MUST rules to memory
+2. Read existing `CLAUDE.md` and `.claude/CLAUDE.md` if they exist
+3. If IDEA.md is missing and either Claude loader file contains project-specific content: migrate that content into IDEA.md before proceeding
+4. Check if .claude/rules/ directory exists
+5. If missing or outdated: CREATE/UPDATE all rule files (see table below)
+6. If CLAUDE.md is missing: create the efficient loader version
+7. If a Claude loader file exists and starts with `# Project SPEC`: treat it as the standard loader format; update only if references/rules are stale
+8. If a Claude loader file exists but is not in the standard loader format: migrate project-specific content to IDEA.md, then merge remaining valid loader guidance into the efficient loader structure - NEVER overwrite blindly
+9. If TODO.AI.md or TODO.md exists: read both and check for needed updates (treat both files the same; never delete or empty the human-owned TODO.md)
+10. Commit all COMMIT, NEVER, and MUST rules to memory
 ```
 
 **Rule Files to Create/Update:**
@@ -2399,9 +2783,9 @@ This rule applies to **all** AI activity — implementation, testing, debugging,
 | Allowed | Example |
 |---------|---------|
 | Read-only inspection | `ip addr show`, `ip route show`, `ss -tlnp`, `systemctl status {x}`, `iptables -L -n`, `mount` (no args), `lsblk`, `df`, `free`, `ps`, `pgrep -la`, `journalctl --no-pager` |
-| Project-scoped temp files | `/tmp/casapps/caspbx-XXXXXX/` (see Temporary Directory Structure) |
+| Project-scoped temp files | `/tmp/{project_org}/{internal_name}-XXXXXX/` (see Temporary Directory Structure) |
 | Project-scoped processes | Kill ONE PID belonging to this project (see Process Management) |
-| Container/VM orchestration | `docker run`, `docker stop {project-container}`, `incus launch`, `incus delete test-caspbx`, `podman run` |
+| Container/VM orchestration | `docker run`, `docker stop {project-container}`, `incus launch`, `incus delete test-{project_name}`, `podman run` |
 
 **Allowed Contexts (commands forbidden on host ARE allowed inside these):**
 
@@ -2442,12 +2826,12 @@ This rule applies to **all** AI activity — implementation, testing, debugging,
 
 | WRONG (ambiguous / leaks to host) | RIGHT (explicit guest scope) |
 |------------------------------------|------------------------------|
-| `systemctl restart caspbx` | `incus exec test-caspbx -- systemctl restart caspbx` |
+| `systemctl restart {project_name}` | `incus exec test-{project_name} -- systemctl restart {project_name}` |
 | `iptables -A INPUT -p tcp --dport 80 -j ACCEPT` | `docker run --rm --cap-add=NET_ADMIN alpine iptables -A INPUT ...` |
 | `apt-get install -y curl` | `docker exec {container} apt-get install -y curl` (and only inside disposable container) |
 | `mount /dev/loop0 /mnt` | `incus exec {instance} -- mount /dev/loop0 /mnt` |
-| `reboot` | `incus restart test-caspbx` (project test instance only) |
-| Plain `bash -c "systemctl ..."` (host shell) | `incus exec test-caspbx -- bash -c "systemctl ..."` |
+| `reboot` | `incus restart test-{project_name}` (project test instance only) |
+| Plain `bash -c "systemctl ..."` (host shell) | `incus exec test-{project_name} -- bash -c "systemctl ..."` |
 
 **Detecting the current execution context (use before any forbidden command):**
 
@@ -2458,7 +2842,7 @@ This rule applies to **all** AI activity — implementation, testing, debugging,
 | `/proc/1/cgroup` contains `docker`/`lxc`/`kubepods` | Inside container | `grep -E 'docker|lxc|kubepods' /proc/1/cgroup` |
 | `systemd-detect-virt` returns non-`none` | Inside VM or container | `systemd-detect-virt` |
 | `$container` env var set (`lxc`, `docker`, `podman`) | Inside that runtime | `echo "$container"` |
-| `hostname` matches `test-caspbx` pattern | Project test guest | Pattern match |
+| `hostname` matches `test-{project_name}` pattern | Project test guest | Pattern match |
 
 **If detection is unavailable or ambiguous → assume HOST → refuse forbidden commands.**
 
@@ -2616,14 +3000,18 @@ See IDEA.md for the full project breakdown.
 - This signals the plan is done and IDEA.md contains the project vision
 - If new planning is needed later, replace the completion message with the new plan
 
+**This completion ritual applies ONLY to PLAN.AI.md.** The human-owned `PLAN.md` is never rewritten or emptied by AI — AI may only mark individual items done in place.
+
 ## Project Files
 
 | File | Purpose | Update When |
 |------|---------|-------------|
 | **AI.md** | Implementation spec (HOW) - SOURCE OF TRUTH | OPTIONAL→REQUIRED only |
 | **IDEA.md** | Project plan (WHAT) - must follow AI.md | Features change |
-| **TODO.AI.md** | Task tracking | Tasks added/completed |
-| **PLAN.AI.md** | Implementation plan | Planning new features |
+| **TODO.AI.md** | Task tracking (AI-owned) | Tasks added/completed |
+| **TODO.md** | Task tracking (human-owned) | AI may mark items done; never delete/empty |
+| **PLAN.AI.md** | Implementation plan (AI-owned) | Planning new features |
+| **PLAN.md** | Implementation plan (human-owned) | AI may mark items done; never rewrite |
 | **README.md** | User documentation | Usage changes |
 
 **Hierarchy:**
@@ -2646,7 +3034,7 @@ See IDEA.md for the full project breakdown.
 ## Before Starting Work
 
 1. **Read AI.md COMPLETELY** - not just parts you think are relevant
-2. **Check TODO.AI.md** - see pending tasks and their priority
+2. **Check TODO.AI.md and TODO.md** - read both if present; see pending tasks and their priority
 3. **Verify understanding** - if ANYTHING is unclear, ASK first
 4. **Never assume** - when in doubt, ask the user
 
@@ -2655,7 +3043,7 @@ See IDEA.md for the full project breakdown.
 1. **Re-read spec before EACH implementation** - every single time
 2. **Follow spec EXACTLY** - no "improvements" without explicit permission
 3. **Check yourself every 3-5 changes** - am I drifting?
-4. **Update TODO.AI.md** as tasks are completed
+4. **Update TODO.AI.md and TODO.md** as tasks are completed (mark items done in whichever file lists them)
 5. **Test your changes** - don't commit untested code
 6. **Keep changes focused** - one feature/fix per task
 7. **If uncertain** - STOP, re-read spec, or ASK
@@ -2668,9 +3056,47 @@ See IDEA.md for the full project breakdown.
 4. **Verify compliance** - check against the FINAL CHECKPOINT
 5. **Update COMMIT_MESS** - only if files were changed (skip if no changes)
 
+## Self-Validation Loop
+
+**AI MUST verify its own work with real tools before reporting a task as done. Do not rely on "the code looks right."**
+
+**This rule applies to EVERY change type covered by this template — backend logic, API, frontend, CLI binaries, Docker, CI/CD, configuration, schema, documentation, observability, i18n, security — not only frontend or web changes.** Whatever you touched, you verify.
+
+Getting code correct on the first try is much harder than iterating with feedback. Close the loop every time.
+
+**Pick the right verification tool for the change:**
+
+| Change type | How to verify |
+|-------------|---------------|
+| Backend logic / API endpoints | Run `make test`; hit the endpoint with curl/test; compare response body, status, and headers against expected |
+| CLI binary / command | Build with `make build`; run the binary; exercise relevant flags including `--help`/`--version`; check stdout, stderr, and exit code |
+| Behavior-preserving refactor | Diff outputs of old vs. new path on representative inputs (don't just trust the diff "looks right") |
+| Frontend / UI change | Start the dev server, open the page in a browser, exercise the feature; if a design was provided, visually compare and iterate |
+| Performance change | Measure before AND after — don't assume parallelism, caching, or "lighter" code is faster |
+| Bug fix | Reproduce the bug FIRST so you have a failing signal, then verify the fix makes the signal disappear; add a regression test where feasible |
+| Schema / migration | Run forward and rollback against a real DB copy; check row counts and constraints; verify the app boots cleanly against the new schema |
+| Configuration / settings | Start the binary with the new config; verify defaults; verify validation rejects bad input with a useful error |
+| Docker / container build | Build the image; run the container; smoke-test at least one endpoint or command to confirm the image actually starts and serves |
+| CI/CD workflow | Run the workflow on a branch (or via `act`/equivalent dry-run); verify each job's exit status, not just YAML validity |
+| Health / observability | Hit `/healthz`, `/readyz`, `/metrics`; verify scrape format and that new metrics actually appear |
+| Logging / error paths | Trigger the error path; verify the log line/structured event was emitted with expected fields |
+| i18n / translation | Switch each supported locale; verify text renders correctly and no placeholders leak |
+| Security-sensitive change (auth, crypto, input validation) | Test both the success path AND attempted bypass paths; never assume a guard works without exercising it |
+| Documentation / README / Swagger | Render markdown / OpenAPI locally; verify links, code samples, and example commands actually work |
+| Type / lint / build correctness | `make build` plus the project's typecheck/lint targets — green across all |
+
+**Iteration rules:**
+- A failed check is data, not failure — adjust and re-run until green
+- Never report "done" while any verification is still red
+- If verification reveals the change is wrong in a way that can't be patched, revert and re-plan; do not paper over a failing check
+
+**When verification is genuinely impossible in this environment** (e.g., no browser, no DB, no display, no internet for an external API): say so explicitly. Do not imply success — list what was checked and what could not be checked, so the user knows where to look.
+
+**Reference:** based on published guidance about AI coding agent self-validation (Eivind Kjosbakken, Towards Data Science, 2026) — when an AI agent is given verification tools (output diffing, browser MCP, test runners) and allowed to iterate, one-shot success rate, run length, and task complexity all improve substantially.
+
 ## Commit Message File
 
-**AI assistants CANNOT run `git add`, `git commit`, or `git push`.** Instead, create/update the commit message file.
+**AI assistants CANNOT run plain `git commit` or plain `git push`.** `git add` is allowed for explicit staging when needed, but commits themselves MUST go through `gitcommit <command>`. Create/update the commit message file before committing.
 
 **File:** `{project_dir}/.git/COMMIT_MESS`
 
@@ -2965,6 +3391,8 @@ Implemented core server functionality and admin panel.
 - Use bullet points for multiple changes
 - Be specific about what changed and why
 
+**This completion ritual applies ONLY to TODO.AI.md.** The human-owned `TODO.md` is never emptied or truncated by AI — AI may only mark individual items done in place. The ✅ commit format is also reserved for TODO.AI.md completion.
+
 ## Project Audit
 
 **Audit is a FULL compliance verification. Only run when user explicitly says "audit".**
@@ -2998,7 +3426,13 @@ Implemented core server functionality and admin panel.
 | File/directory rules | Critical Rules | No forbidden files/dirs, naming correct |
 | Code patterns | Relevant PARTs | Config, server, API patterns match |
 | Business logic | IDEA.md | Features implemented match what IDEA.md defines |
+| Threat model / abuse model | IDEA.md → `## Business logic` | Trust boundaries, data sensitivity, abuse cases, and security exceptions are documented and code matches them |
+| Well-known namespace | PART 11 / web routes | `/.well-known/**` only serves documented allowlisted entries, unsupported entries 404, and optional entries exist only when the corresponding feature is defined |
+| External identity auth | PART 34 | OIDC and LDAP both exist, support multiple providers, expose the documented `/server/auth/*` and `/api/{api_version}/server/auth/*` routes, and are manageable from `/server/{admin_path}/config/security/auth/*` |
+| External username onboarding | PART 34 | New OIDC/LDAP-backed users/admins go through the documented first-login username confirmation flow, including prefill normalization and collision-safe numeric suggestions |
 | CLI interface | PART 8 | Flags, commands, help output match spec |
+| Client/agent scope | PART 33 | `src/client/` exists for all projects; `src/agent/` only when project needs it |
+| Untrusted content handling | PART 11, PART 16 | User-controlled files/markdown/HTML render as escaped text or sanitized markdown; dangerous types are not served executable on the app origin |
 
 ### Step 2: File Sync Verification
 **Do all project files reflect the SAME reality?**
@@ -3011,6 +3445,7 @@ Implemented core server functionality and admin panel.
 | **Code ↔ GraphQL** | Schema | Types/queries match actual resolvers |
 | **Code ↔ docs/** | All documentation | ReadTheDocs matches implementation |
 | **Code ↔ CLI --help** | Commands/flags | Help output matches actual CLI |
+| **Code ↔ `.github/` policy files** | Support/report/review flow | CONTRIBUTING, SECURITY, issue templates, PR template, and CODEOWNERS match actual project behavior and paths |
 
 ### Step 3: Infrastructure File Accuracy
 **Do infrastructure files match the project?**
@@ -3020,13 +3455,25 @@ Implemented core server functionality and admin panel.
 | **docker/Dockerfile** | PART 27, actual code | Build stages, packages, paths correct |
 | **docker/docker-compose.yml** | PART 27, actual config | Ports, volumes, env vars match |
 | **docker/docker-compose.dev.yml** | PART 27 | Dev workflow correct |
-| **docker/file_system/** | Actual entrypoint needs | Scripts match what app expects |
+| **docker/rootfs/** | Actual container overlay needs | Entrypoint and overlay files match what the image expects |
+| **.github/CODEOWNERS** | Actual repo layout | Catch-all owner exists and sensitive paths are covered |
+| **.github/dependabot.yml** | Actual ecosystems | Go modules, Actions, and Docker are covered when used |
+| **.github/SECURITY.md** | security.txt/contact/reporting flow | Reporting instructions and support window are accurate |
+| **.github/ISSUE_TEMPLATE/*** | Actual support/reporting model | Bug, feature, support, and vulnerability routing are correct |
 | **.github/workflows/*.yml** | PART 28, actual build | CI/CD builds what exists, tests what exists |
 | **.gitea/workflows/*.yml** | PART 28, actual build | Same as GitHub workflows |
 | **Jenkinsfile** | PART 28, actual build | Pipeline matches project |
 | **Makefile** | PART 26, actual targets | Targets work, paths correct |
 | **mkdocs.yml** | PART 30, docs/ structure | Nav matches actual doc files |
 | **.readthedocs.yaml** | PART 30 | Config correct for project |
+| **Release artifacts** | release workflow + updater/client behavior | Checksums, SBOM, release notes, and attestation/provenance rules are satisfied |
+
+**Workflow hardening checks for `.github/workflows/*.yml`:**
+- least-privilege permissions
+- no unsafe `pull_request_target` build/test/publish path
+- third-party actions pinned to full SHA
+- no secrets/write tokens exposed to fork PRs
+- security workflow exists and blocks on secret/dependency/workflow-policy failures
 
 ### Step 4: AI Tool Configuration (Rule Files)
 **Do AI rule files exist and follow the required format?**
@@ -3056,7 +3503,7 @@ Implemented core server functionality and admin panel.
 | **README.md** | Actual features, endpoints, usage | PART 3 | Features added/removed/changed |
 | **Swagger/OpenAPI** | Actual API routes in code | PART 14 | Routes changed, params changed |
 | **GraphQL schema** | Actual types/queries in code | PART 14 | Schema changed |
-| **docs/** (ReadTheDocs) | Actual config, API, features | PART 30 | Any user-facing changes |
+| **docs/** (ReadTheDocs) | Actual config, API, admin, security, integrations, and public protocol behavior | PART 30 | Any user-facing, admin-facing, operator-facing, or integration-facing changes |
 | **IDEA.md** | Actual business logic | — | Features/data models changed |
 | **CLI --help** | Actual flags/commands | PART 8 | CLI changed |
 
@@ -3079,11 +3526,11 @@ Read the FINAL CHECKPOINT section and verify ALL items.
 | Docker files wrong | Update docker/* files |
 | Makefile targets broken | Fix Makefile |
 
-### Step 8: Track Issues in AUDIT.AI.md
+### Step 8: Temporary Tracking in AUDIT.AI.md
 
-**Use AUDIT.AI.md for audit tracking, NOT TODO.AI.md.**
+**Use `AUDIT.AI.md` only for explicit audits that uncover more than 5 issues. Do NOT use `TODO.AI.md` for audit findings.**
 
-If more than 5 issues to fix:
+If an explicit audit finds more than 5 issues to fix:
 1. Create AUDIT.AI.md (audit-specific tracking file)
 2. Log all issues found
 3. Fix them one by one, marking complete as you go
@@ -3118,8 +3565,9 @@ Spec version: {line count or hash}
 
 | Rule | Requirement |
 |------|-------------|
-| **Tracking file** | Use `AUDIT.AI.md` (NOT TODO.AI.md) |
+| **Tracking file** | Use temporary `AUDIT.AI.md` only for explicit audits with more than 5 issues (NOT TODO.AI.md) |
 | **Fix immediately** | Fix issues as found, don't just log |
+| **No silent fixes** | Tell the user what you found while fixing it; don't stop at a findings-only report unless they asked for one |
 | **Sync items** | Docs, Swagger, GraphQL, CI/CD must match code |
 | **Completion** | Delete AUDIT.AI.md when all issues resolved |
 | **No partial** | Don't leave AUDIT.AI.md with unchecked items |
@@ -3177,16 +3625,16 @@ Spec version: {line count or hash}
 
 1. Download it first using curl:
    ```bash
-   curl -q -LSsf -o {tmp_dir}/casapps/caspbx/screenshot_XXXX.png {url}
+   curl -q -LSsf -o {tmp_dir}/{project_org}/{internal_name}/screenshot_XXXX.png {url}
    ```
 2. Then view the downloaded local file using the Read tool
 
 | Step | Command |
 |------|---------|
-| Download | `curl -q -LSsf -o {tmp_dir}/casapps/caspbx/screenshot_XXXX.png {url}` |
+| Download | `curl -q -LSsf -o {tmp_dir}/{project_org}/{internal_name}/screenshot_XXXX.png {url}` |
 | View | Use Read tool on the downloaded file |
 
-**Path format:** `{tmp_dir}/casapps/caspbx/screenshot_XXXX` where `XXXX` is an incremental number (0001, 0002, etc.)
+**Path format:** `{tmp_dir}/{project_org}/{internal_name}/screenshot_XXXX` where `XXXX` is an incremental number (0001, 0002, etc.)
 
 **Why:** Remote URLs may require authentication, have rate limits, or change. Downloading first ensures the image is captured and can be re-examined without re-fetching.
 
@@ -3250,10 +3698,10 @@ type Config struct {
 # Enable multi-user mode
 enabled: false
 
-# User registration mode (when enabled)
-# Options: public (default), private, disabled
+# User registration creation mode (when enabled)
+# Options: open (default), invite, admin_only, disabled
 registration:
-  mode: public
+  mode: open
 ```
 
 ### Code Quality Rules
@@ -3414,7 +3862,7 @@ When the specification is unclear:
 | **CI/CD workflows** | GitHub/Gitea/Jenkins pipeline structure |
 | **Directory layout** | `src/`, `docker/`, `binaries/`, etc. |
 | **Config file format** | YAML structure, standard keys |
-| **Health endpoints** | `/healthz`, `/api/{api_version}/healthz` format |
+| **Health endpoints** | `/server/healthz`, `/api/{api_version}/server/healthz` format |
 | **API response format** | JSON structure, error format, pagination |
 
 ### What Projects CAN Customize
@@ -3530,7 +3978,7 @@ logging:
 |-------|------------|
 | **CLI flags** | `--help` output matches template spec |
 | **Config loading** | YAML config loads correctly |
-| **Health checks** | `/healthz` returns correct format |
+| **Health checks** | `/server/healthz` returns correct format |
 | **API format** | JSON responses match spec |
 | **Build** | `make build` succeeds |
 | **Docker** | `make docker` succeeds |
@@ -3787,8 +4235,8 @@ Enter choice [a-d]:
 # AI should run these checks and report results:
 
 # 1. Verify CLI
-./binaries/caspbx --help
-./binaries/caspbx --version
+./binaries/{project_name} --help
+./binaries/{project_name} --version
 
 # 2. Verify build
 make clean && make build
@@ -3937,7 +4385,7 @@ ls -la docker/
 
 | If NOT using... | These must NOT appear in code |
 |-----------------|------------------------------|
-| PART 34 (Multi-User) | `users` table, user registration, user preferences table, user API tokens, `/auth/register`, user profiles, `allow_user_preference` config options |
+| PART 34 (Multi-User) | `users` table, user registration, user preferences table, user API tokens, `/server/auth/register`, user profiles, `allow_user_preference` config options |
 | PART 35 (Organizations) | `organizations` table, org membership, org ownership, org API tokens, `/orgs/*` routes |
 | PART 36 (Custom Domains) | `custom_domains` table, domain verification, user/org domain settings, SSL for custom domains |
 
@@ -4097,6 +4545,10 @@ If blocked on current feature:
 □ Health endpoints return SPEC format
 □ API responses match SPEC format
 □ Error responses match SPEC format
+□ `/.well-known/**` only serves the documented allowlisted entries and unknown entries return `404`
+□ Canonical `/.well-known/security.txt` is served; `/security.txt` is not required unless explicitly defined in `IDEA.md`
+□ If external auth is enabled, both OIDC and LDAP support multiple providers and are manageable from `/server/{admin_path}/config/security/auth/*`
+□ New OIDC/LDAP-backed users/admins follow the first-login username confirmation flow with normalized prefill and visible collision-safe numeric suggestions
 ```
 
 ### Infrastructure
@@ -4106,6 +4558,24 @@ If blocked on current feature:
 □ entrypoint.sh matches SPEC exactly
 □ Makefile has all required targets
 □ CI/CD workflows in place
+```
+
+### Governance & Community
+```
+□ Public repo `.github/` files present and project-specific
+□ CODEOWNERS covers repo root and security-sensitive paths
+□ Dependabot configured for all ecosystems actually used
+□ Issue/PR/security templates route users correctly
+□ Default-branch protection requirements are defined
+```
+
+### Supply Chain & Release
+```
+□ Workflow permissions follow least privilege
+□ Third-party workflow actions are SHA-pinned
+□ Secret scanning is enabled and blocking
+□ Release outputs include checksums and release notes
+□ Public releases include SBOM and provenance/attestation when platform supports it
 ```
 
 ### Security & Operations
@@ -4118,10 +4588,13 @@ If blocked on current feature:
 □ Logging in SPEC format
 ```
 
-### Optional (if included)
+### Required / Project-Specific Features
 ```
-□ client follows SPEC (if PART 33 included)
-□ Custom domains follows SPEC (if PART 36 included)
+□ client follows SPEC (required for all projects)
+□ agent follows SPEC (if implemented)
+□ Custom domains follow SPEC (if PART 36 included)
+□ IDEA.md business logic defines scope, trust boundaries, data sensitivity, abuse cases, and security exceptions
+□ Implementation matches the declared threat/abuse model
 ```
 
 ## What To Do When Stuck
@@ -4156,20 +4629,20 @@ Every feature MUST work via:
 | **Browser** | Chrome, Firefox, Safari | HTML (pretty UI) |
 | **PWA** | Installed web app (desktop/mobile) | HTML (same as browser) |
 | **API/Automation** | curl, wget, scripts, integrations | JSON |
-| **CLI tool** | `caspbx-cli` | Text/JSON (configurable) |
+| **CLI tool** | `{project_name}-cli` | Text/JSON (configurable) |
 
 **Endpoint Pattern (applies to ENTIRE app):**
 | Web Route (HTML) | API Route (JSON) | Purpose |
 |------------------|------------------|---------|
 | `/` | `/api/{api_version}/` | Homepage / API root |
-| `/healthz` | `/api/{api_version}/healthz` | Health status (both exist independently) |
-| `/{admin_path}/dashboard` | `/api/{api_version}/{admin_path}/dashboard` | Admin dashboard |
-| `/{admin_path}/server/settings` | `/api/{api_version}/{admin_path}/server/settings` | Server settings |
-| `/{admin_path}/users` | `/api/{api_version}/{admin_path}/users` | User management |
+| `/server/healthz` | `/api/{api_version}/server/healthz` | Health status (both exist independently) |
+| `/server/{admin_path}` | `/api/{api_version}/server/{admin_path}` | Admin dashboard |
+| `/server/{admin_path}/config/settings` | `/api/{api_version}/server/{admin_path}/config/settings` | Server settings |
+| `/server/{admin_path}/config/users` | `/api/{api_version}/server/{admin_path}/config/users` | User management |
 | `/quotes` | `/api/{api_version}/quotes` | Project feature (example) |
 | `/quotes/random` | `/api/{api_version}/quotes/random` | Project feature (example) |
-| `/server/docs/swagger` | `/api/{api_version}/swagger` (also `/api/swagger` alias) | Swagger UI / OpenAPI JSON spec |
-| `/server/docs/graphql` | `/api/{api_version}/graphql` (also `/api/graphql` alias) | GraphiQL UI / GraphQL POST endpoint |
+| `/server/docs/swagger` | `/api/{api_version}/server/swagger` (also `/api/swagger` alias) | Swagger UI / OpenAPI JSON spec |
+| `/server/docs/graphql` | `/api/{api_version}/server/graphql` (also `/api/graphql` alias) | GraphiQL UI / GraphQL POST endpoint |
 
 **This pattern applies to ALL features:**
 - Every admin page has a corresponding admin API
@@ -4218,7 +4691,7 @@ When working on this project, the following roles are assumed based on the task:
 
 ```bash
 # CORRECT - Use Makefile targets
-make dev                    # Quick build to {tempdir}/casapps/caspbx-XXXXXX/
+make dev                    # Quick build to {tempdir}/{project_org}/{internal_name}-XXXXXX/
 make local                   # Build with version info to binaries/
 make build                  # Full cross-platform build to binaries/
 make test                   # Run unit tests
@@ -4228,7 +4701,7 @@ make test                   # Run unit tests
 ./tests/incus.sh            # Full OS test with systemd (PREFERRED)
 
 # WRONG - Never run go directly on local machine
-go build -o binary/caspbx ./src
+go build -o binary/{project_name} ./src
 ```
 
 **See PART 29: TESTING & DEVELOPMENT for full containerized build/test procedures.**
@@ -4248,8 +4721,10 @@ go build -o binary/caspbx ./src
 | **Least Privilege** | Minimal permissions required for each operation |
 | **Fail Secure** | On error, deny access rather than grant it |
 | **Secure by Default** | Safe defaults, user opts-in to less secure options |
+| **Internet-Facing Baseline** | Server apps are assumed exposed to hostile public networks unless the user explicitly defines a private/internal deployment |
 | **Suggest, Don't Block** | Recommend security features (MFA), never force them |
 | **Friction-Free Security** | Security should enhance, not impede, the user experience |
+| **Usability Through Safe Automation** | Reduce operator effort by automating secure behavior, not by weakening controls |
 
 **Security suggestions (not requirements):**
 
@@ -4265,6 +4740,29 @@ go build -o binary/caspbx ./src
 - User settings: security section with MFA setup and recommendations
 - Clear benefits: "Secure your account with two-factor authentication"
 - Never block access or features for users without MFA
+
+### Secure-by-Design Rule for Internet-Facing Servers
+
+- These applications are servers first. Unless the user explicitly says otherwise, AI MUST treat them as internet-facing and hostile-traffic-exposed by default
+- Usability work MUST make the secure path easier; it MUST NOT make the secure path weaker
+- If a security feature feels painful, solve it with:
+  - automatic safe defaults
+  - setup/runtime detection
+  - clearer UI copy and recovery flows
+  - progressive disclosure in admin UX
+  - better docs/examples
+- AI MUST NOT reduce friction by disabling, loosening, or bypassing:
+  - authn / authz
+  - TLS / secure cookies
+  - CSRF / CSP / CORS protections
+  - rate limiting / lockouts / abuse controls
+  - input validation / output sanitization / untrusted-file protections
+  - least-privilege runtime rules
+- Any intentionally weaker compatibility/convenience mode MUST be:
+  - explicit, never default
+  - documented in IDEA.md
+  - clearly labeled in UI/docs as a security tradeoff
+- Refactors, UX improvements, and simplifications MUST preserve or strengthen the current security posture. "Easier" never means "less secure."
 
 ### Input Validation
 
@@ -4333,7 +4831,7 @@ db.Query("SELECT * FROM users WHERE email = '" + email + "'")
 | **Invalid email format** | "Please enter a valid email address" | Same | `validation_error: email format invalid, input=[redacted]` |
 | **Login failed (wrong password)** | "Invalid credentials" | "Login failed for user@example.com" | `auth_failure: user_id=123, ip=1.2.3.4, reason=invalid_password` |
 | **Login failed (no such user)** | "Invalid credentials" | "Login attempt for unknown user" | `auth_failure: email=[redacted], ip=1.2.3.4, reason=user_not_found` |
-| **Rate limited** | "Too many attempts. Try again in 5 minutes" | "Rate limit hit: login, IP 1.2.3.4" | `rate_limit: endpoint=/auth/login, ip=1.2.3.4, limit=5/15m` |
+| **Rate limited** | "Too many attempts. Try again in 5 minutes" | "Rate limit hit: login, IP 1.2.3.4" | `rate_limit: endpoint=/server/auth/login, ip=1.2.3.4, limit=5/15m` |
 | **Database error** | "An error occurred. Please try again" | "Database connection failed" | `db_error: connection refused, host=db.local:5432, err=[full error]` |
 | **Permission denied** | "Access denied" | "User lacks permission: admin.settings" | `authz_failure: user_id=123, resource=admin.settings, action=write` |
 | **Internal panic** | "An unexpected error occurred" | "Internal error - check logs" | `panic: [full stack trace], request_id=abc123` |
@@ -4391,6 +4889,8 @@ Content-Type: application/json
 | Rate limiting | Prevent abuse | Clear error message with retry time |
 | CAPTCHA | Prevent bots | Only after failed attempts, not first try |
 | 2FA | Account security | Remember device option (30 days) |
+
+**Rule:** solve usability problems by improving workflow, defaults, messaging, and automation - not by weakening protections that guard an internet-facing server.
 
 ---
 
@@ -4617,8 +5117,10 @@ func gUBE(e string) (*U, error) {
 |------|----------|---------|---------|
 | **AI.md** | Project repository | Implementation spec (HOW) | **NEVER** |
 | **IDEA.md** | Project repository | Project spec (WHAT) | **YES** |
-| **TODO.AI.md** | Project repository | Task tracking (3+ tasks) | **YES** |
-| **PLAN.AI.md** | Project repository | Implementation plan | **YES** |
+| **TODO.AI.md** | Project repository | Task tracking (AI-owned, 3+ tasks) | **YES** |
+| **TODO.md** | Project repository | Task tracking (human-owned) | **MARK ITEMS DONE ONLY** (never delete/empty) |
+| **PLAN.AI.md** | Project repository | Implementation plan (AI-owned) | **YES** |
+| **PLAN.md** | Project repository | Implementation plan (human-owned) | **MARK ITEMS DONE ONLY** (never rewrite) |
 
 ### Documentation Rules
 
@@ -4633,7 +5135,10 @@ func gUBE(e string) (*U, error) {
 ```
 AI.md (implementation spec - READ-ONLY)
 IDEA.md (project spec - update as needed)
-    └── TODO.AI.md (task tracking)
+    ├── PLAN.AI.md  (AI-owned plan, optional)
+    ├── PLAN.md     (human-owned plan, optional - AI marks items done only)
+    ├── TODO.AI.md  (AI-owned task tracking)
+    └── TODO.md     (human-owned task tracking - AI marks items done only)
 ```
 
 ### README.md
@@ -4672,39 +5177,39 @@ Detect platform by checking for workflow files in this order:
 
 ```markdown
 # GitHub Actions
-[![Build](https://github.com/casapps/caspbx/actions/workflows/build.yml/badge.svg)](https://github.com/casapps/caspbx/actions/workflows/build.yml)
+[![Build](https://github.com/{project_org}/{project_name}/actions/workflows/build.yml/badge.svg)](https://github.com/{project_org}/{project_name}/actions/workflows/build.yml)
 
 # Gitea/Forgejo Actions
-[![Build](https://git.example.com/casapps/caspbx/actions/workflows/build.yml/badge.svg)](https://git.example.com/casapps/caspbx/actions)
+[![Build](https://git.example.com/{project_org}/{project_name}/actions/workflows/build.yml/badge.svg)](https://git.example.com/{project_org}/{project_name}/actions)
 
 # GitLab CI
-[![Build](https://gitlab.com/casapps/caspbx/badges/main/pipeline.svg)](https://gitlab.com/casapps/caspbx/-/pipelines)
+[![Build](https://gitlab.com/{project_org}/{project_name}/badges/main/pipeline.svg)](https://gitlab.com/{project_org}/{project_name}/-/pipelines)
 
 # Jenkins
-[![Build](https://jenkins.example.com/buildStatus/icon?job=casapps/caspbx)](https://jenkins.example.com/job/casapps/job/caspbx/)
+[![Build](https://jenkins.example.com/buildStatus/icon?job={project_org}/{project_name})](https://jenkins.example.com/job/{project_org}/job/{project_name}/)
 ```
 
 **Release/License/Docs badges also adapt to platform:**
 
 ```markdown
 # GitHub
-[![Release](https://img.shields.io/github/v/release/casapps/caspbx)](https://github.com/casapps/caspbx/releases)
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![Release](https://img.shields.io/github/v/release/{project_org}/{project_name})](https://github.com/{project_org}/{project_name}/releases)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 [![Docs](https://readthedocs.org/projects/{RTD_PROJECT}/badge/?version=latest)](https://{RTD_URL})
 
 # GitLab
-[![Release](https://gitlab.com/casapps/caspbx/-/badges/release.svg)](https://gitlab.com/casapps/caspbx/-/releases)
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![Release](https://gitlab.com/{project_org}/{project_name}/-/badges/release.svg)](https://gitlab.com/{project_org}/{project_name}/-/releases)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 [![Docs](https://readthedocs.org/projects/{RTD_PROJECT}/badge/?version=latest)](https://{RTD_URL})
 
 # Gitea/Forgejo (use shields.io with custom endpoint or static badge)
-[![Release](https://img.shields.io/badge/dynamic/json?url=https://git.example.com/api/{api_version}/repos/casapps/caspbx/releases/latest&query=$.tag_name&label=release)](https://git.example.com/casapps/caspbx/releases)
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![Release](https://img.shields.io/badge/dynamic/json?url=https://git.example.com/api/{api_version}/repos/{project_org}/{project_name}/releases/latest&query=$.tag_name&label=release)](https://git.example.com/{project_org}/{project_name}/releases)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 [![Docs](https://readthedocs.org/projects/{RTD_PROJECT}/badge/?version=latest)](https://{RTD_URL})
 
 # {RTD_PROJECT} and {RTD_URL} - Use one of:
-#   casapps-caspbx / casapps-caspbx.readthedocs.io
-#   caspbx / caspbx.readthedocs.io
+#   {project_org}-{project_name} / {project_org}-{project_name}.readthedocs.io
+#   {project_name} / {project_name}.readthedocs.io
 #   Custom project name / {custom_rtd_address}
 ```
 
@@ -4716,7 +5221,7 @@ Detect platform by checking for workflow files in this order:
 
 ```markdown
 # ✅ CORRECT - GitHub can detect license
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 
 # ❌ WRONG - Static badge, GitHub cannot detect
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
@@ -4729,7 +5234,7 @@ Detect platform by checking for workflow files in this order:
 
 **Verify detection:**
 - Go to repo page → Look at right sidebar → Should show "MIT License" (not just "View license")
-- API check: `curl -q -LSsf https://api.github.com/repos/casapps/caspbx/license`
+- API check: `curl -q -LSsf https://api.github.com/repos/{project_org}/{project_name}/license`
 
 #### Docs Badge - Avoid "unknown"
 
@@ -4740,8 +5245,8 @@ Detect platform by checking for workflow files in this order:
 | Docs Platform | Badge | Condition |
 |---------------|-------|-----------|
 | ReadTheDocs | See ReadTheDocs URL formats below | RTD project exists |
-| GitHub Pages | `[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://casapps.github.io/caspbx)` | gh-pages branch exists |
-| GitBook | `[![Docs](https://img.shields.io/badge/docs-GitBook-blue)](https://casapps.gitbook.io/caspbx)` | GitBook project exists |
+| GitHub Pages | `[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://{project_org}.github.io/{project_name})` | gh-pages branch exists |
+| GitBook | `[![Docs](https://img.shields.io/badge/docs-GitBook-blue)](https://{project_org}.gitbook.io/{project_name})` | GitBook project exists |
 | Self-hosted | `[![Docs](https://img.shields.io/badge/docs-online-blue)]({docs_url})` | Docs site is live |
 | None | **Do not add docs badge** | No docs deployed |
 
@@ -4756,18 +5261,18 @@ Detect platform by checking for workflow files in this order:
 
 | Format | URL Pattern | When to Use |
 |--------|-------------|-------------|
-| **Org-Project** | `https://casapps-caspbx.readthedocs.io` | Default for organization projects |
-| **Project Only** | `https://caspbx.readthedocs.io` | When project name is unique enough |
+| **Org-Project** | `https://{project_org}-{project_name}.readthedocs.io` | Default for organization projects |
+| **Project Only** | `https://{project_name}.readthedocs.io` | When project name is unique enough |
 | **Custom Domain** | `https://{custom_rtd_address}` | When custom domain is configured in RTD |
 
 **Badge formats:**
 
 ```markdown
 # Option 1: Org-Project format (most common)
-[![Docs](https://readthedocs.org/projects/casapps-caspbx/badge/?version=latest)](https://casapps-caspbx.readthedocs.io)
+[![Docs](https://readthedocs.org/projects/{project_org}-{project_name}/badge/?version=latest)](https://{project_org}-{project_name}.readthedocs.io)
 
 # Option 2: Project only format
-[![Docs](https://readthedocs.org/projects/caspbx/badge/?version=latest)](https://caspbx.readthedocs.io)
+[![Docs](https://readthedocs.org/projects/{project_name}/badge/?version=latest)](https://{project_name}.readthedocs.io)
 
 # Option 3: Custom domain
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://{custom_rtd_address})
@@ -4775,16 +5280,16 @@ Detect platform by checking for workflow files in this order:
 
 **Determining which format to use:**
 1. Check your ReadTheDocs project settings for the actual URL
-2. If using organization account → likely `casapps-caspbx`
-3. If standalone project → likely just `caspbx`
+2. If using organization account → likely `{project_org}-{project_name}`
+3. If standalone project → likely just `{project_name}`
 4. If custom domain configured → use that
 
 **mkdocs.yml site_url must match:**
 ```yaml
 # Must match whichever RTD URL format you're using
-site_url: https://casapps-caspbx.readthedocs.io
+site_url: https://{project_org}-{project_name}.readthedocs.io
 # OR
-site_url: https://caspbx.readthedocs.io
+site_url: https://{project_name}.readthedocs.io
 # OR
 site_url: https://{custom_rtd_address}
 ```
@@ -4830,8 +5335,8 @@ By using this software, you acknowledge that you have read and understood this d
 
 | Context | URL Format | Example |
 |---------|------------|---------|
-| **Documentation** (README, docs/, examples) | `{official_site}/path` | `GET https://api.example.com/healthz` |
-| **Embedded code** (Go, JS, templates) | `{fqdn}/path` | `fmt.Sprintf("https://%s/healthz", cfg.FQDN)` |
+| **Documentation** (README, docs/, examples) | `{official_site}/path` | `GET https://api.example.com/server/healthz` |
+| **Embedded code** (Go, JS, templates) | `{fqdn}/path` | `fmt.Sprintf("https://%s/server/healthz", cfg.FQDN)` |
 
 **Why the distinction:**
 - **Documentation**: Users copy-paste. Full URLs work immediately.
@@ -4862,13 +5367,13 @@ If `{official_site}` is defined, ALL documentation examples MUST use the full UR
 
 ```markdown
 # ❌ WRONG - Relative paths when officialsite exists
-GET /healthz
+GET /server/healthz
 GET /api/v1/users
 GET /api/autoconfig
 curl http://localhost:8080/api/v1/data
 
 # ✅ CORRECT - Full URLs using officialsite
-GET https://api.example.com/healthz
+GET https://api.example.com/server/healthz
 GET https://api.example.com/api/v1/users
 GET https://api.example.com/api/autoconfig
 curl -q -LSsf https://api.example.com/api/v1/data
@@ -4888,7 +5393,7 @@ curl -q -LSsf https://api.example.com/api/v1/data
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET {official_site}/healthz` | Health check |
+| `GET {official_site}/server/healthz` | Health check |
 | `GET {official_site}/api/v1/users` | List users |
 | `POST {official_site}/api/v1/users` | Create user |
 | `GET {official_site}/api/autoconfig` | Auto-configuration |
@@ -4897,7 +5402,7 @@ curl -q -LSsf https://api.example.com/api/v1/data
 
 ```bash
 # Get server status
-curl -q -LSsf {official_site}/healthz
+curl -q -LSsf {official_site}/server/healthz
 
 # List all users (requires auth)
 curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/v1/users
@@ -4908,8 +5413,8 @@ curl -q -LSsf {official_site}/api/autoconfig
 ```
 
 **If {official_site} is not defined:**
-- Use relative paths: `GET /healthz`, `GET /api/v1/users`
-- Use placeholder in curl: `curl -q -LSsf http://YOUR_SERVER/healthz`
+- Use relative paths: `GET /server/healthz`, `GET /api/v1/users`
+- Use placeholder in curl: `curl -q -LSsf http://YOUR_SERVER/server/healthz`
 - Document that user must specify their server URL
 
 ---
@@ -4937,11 +5442,11 @@ For code that runs in the application, NEVER use bare `/path`. Always use `{fqdn
 
 ```go
 // ❌ WRONG - Bare path
-redirectURL := "/auth/callback"
+redirectURL := "/server/auth/callback"
 link := "/api/v1/users/" + userID
 
 // ✅ CORRECT - Using FQDN
-redirectURL := fmt.Sprintf("https://%s/auth/callback", cfg.FQDN)
+redirectURL := fmt.Sprintf("https://%s/server/auth/callback", cfg.FQDN)
 link := fmt.Sprintf("https://%s/api/v1/users/%s", cfg.FQDN, userID)
 
 // ✅ CORRECT - Helper function
@@ -4978,14 +5483,17 @@ fetch(`${config.apiBaseUrl}/api/v1/users`)
 ```go
 // OK to use bare paths for internal router registration
 router.GET("/api/v1/users", handleUsers)
-router.GET("/healthz", handleHealth)
+router.GET("/server/healthz", handleHealth)
+if cfg.Server.Healthz.Root.Enabled {
+    router.GET("/healthz", handleHealth) // same handler, no redirect
+}
 ```
 
 **Summary:**
 
 | Location | Format | Example |
 |----------|--------|---------|
-| README.md | `{official_site}/path` | `GET https://api.example.com/healthz` |
+| README.md | `{official_site}/path` | `GET https://api.example.com/server/healthz` |
 | docs/*.md | `{official_site}/path` | `curl -q -LSsf https://api.example.com/api/v1/users` |
 | Go code | `{fqdn}/path` | `fmt.Sprintf("https://%s/path", cfg.FQDN)` |
 | JS code | `origin/path` | `${window.location.origin}/path` |
@@ -5006,11 +5514,11 @@ router.GET("/healthz", handleHealth)
 **Use the appropriate badges and URLs for your platform (see above).**
 
 ```markdown
-# caspbx
+# {project_name}
 
 {PLATFORM_BUILD_BADGE}
 {PLATFORM_RELEASE_BADGE}
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 {PLATFORM_DOCS_BADGE}  <!-- Only include if docs are deployed -->
 
 ## About
@@ -5033,11 +5541,11 @@ router.GET("/healthz", handleHealth)
 
 ```bash
 docker run -d \
-  --name caspbx \
+  --name {project_name} \
   -p 64580:80 \
-  -v ./rootfs/config:/config:z \
-  -v ./rootfs/data:/data:z \
-  {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  -v ./volumes/config:/config:z \
+  -v ./volumes/data:/data:z \
+  {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
 ```
 
 ### Docker Compose
@@ -5051,11 +5559,11 @@ docker compose up -d
 
 ```bash
 # Download latest release
-curl -q -LSsf -O {PLATFORM_RELEASE_URL}/caspbx-linux-amd64
+curl -q -LSsf -O {PLATFORM_RELEASE_URL}/{project_name}-linux-amd64
 
 # Make executable and run
-chmod +x caspbx-linux-amd64
-./caspbx-linux-amd64
+chmod +x {project_name}-linux-amd64
+./{project_name}-linux-amd64
 ```
 
 ## Client
@@ -5066,28 +5574,28 @@ A companion client is available for interacting with the server API.
 
 ```bash
 # Download latest release
-curl -q -LSsf -O {PLATFORM_RELEASE_URL}/caspbx-cli-linux-amd64
-chmod +x caspbx-cli-linux-amd64
-sudo mv caspbx-cli-linux-amd64 /usr/local/bin/caspbx-cli
+curl -q -LSsf -O {PLATFORM_RELEASE_URL}/{project_name}-cli-linux-amd64
+chmod +x {project_name}-cli-linux-amd64
+sudo mv {project_name}-cli-linux-amd64 /usr/local/bin/{project_name}-cli
 ```
 
 ### Configure
 
 ```bash
-# Connect to official server (creates ~/.config/casapps/caspbx/cli.yml)
-caspbx-cli --server {official_site} --token YOUR_API_TOKEN
+# Connect to official server (creates ~/.config/{project_org}/{internal_name}/cli.yml)
+{project_name}-cli --server {official_site} --token YOUR_API_TOKEN
 ```
 
 ### Usage
 
 ```bash
-caspbx-cli --help
-caspbx-cli [command] --help
+{project_name}-cli --help
+{project_name}-cli [command] --help
 ```
 
 ## Configuration
 
-Configuration is auto-generated on first run. Edit via admin panel at `{proto}://{fqdn}/{admin_path}` (admin_path defaults to "admin").
+Configuration is auto-generated on first run. Edit via admin panel at `{proto}://{fqdn}/server/{admin_path}` (admin_path defaults to "admin").
 
 Key settings:
 - `server.port` - Listen port (default: random 64xxx)
@@ -5099,14 +5607,14 @@ API documentation available at `{official_site}/api/{api_version}/` when running
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET {official_site}/healthz` | Health check |
+| `GET {official_site}/server/healthz` | Health check |
 | `GET {official_site}/api/{api_version}/...` | API endpoints |
 
 ### Examples
 
 ```bash
 # Health check
-curl -q -LSsf {official_site}/healthz
+curl -q -LSsf {official_site}/server/healthz
 
 # API request (requires auth)
 curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/{api_version}/resource
@@ -5116,8 +5624,8 @@ curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/{api_version}
 
 ### Troubleshooting
 
-- Check logs: `docker logs caspbx`
-- Health check: `curl -q -LSsf {official_site}/healthz`
+- Check logs: `docker logs {project_name}`
+- Health check: `curl -q -LSsf {official_site}/server/healthz`
 
 ## Development
 
@@ -5133,7 +5641,7 @@ curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/{api_version}
 ```bash
 # Clone
 git clone {PLATFORM_REPO_URL}
-cd caspbx
+cd {project_name}
 
 # Quick dev build (outputs to OS temp dir)
 make dev
@@ -5233,17 +5741,17 @@ curl -q -LSsf -X POST -d '{"key":"value"}' {url}
 
 ```bash
 # ✅ CORRECT
-curl -q -LSsf https://api.example.com/healthz
-curl -q -LSsfI https://api.example.com/healthz
+curl -q -LSsf https://api.example.com/server/healthz
+curl -q -LSsfI https://api.example.com/server/healthz
 curl -q -LSsf -H "Accept: application/json" https://api.example.com/users
 curl -q -LSsf -X POST -d '{"name":"test"}' https://api.example.com/users
 curl -q -LSsf -o app.tar.gz https://releases.example.com/app-1.0.tar.gz
 curl -q -LSsf -O https://releases.example.com/app-linux-amd64
 
 # ❌ WRONG - Missing standard flags
-curl https://api.example.com/healthz
-curl -s https://api.example.com/healthz
-curl -L https://api.example.com/healthz
+curl https://api.example.com/server/healthz
+curl -s https://api.example.com/server/healthz
+curl -L https://api.example.com/server/healthz
 ```
 
 **Where this applies:**
@@ -5358,7 +5866,7 @@ Not every project needs admin UI extensions - it depends on the project's nature
 **Where to NEVER expose:**
 | Location | Rule |
 |----------|------|
-| `/healthz` | Status only: "ok"/"error", no connection details |
+| `/server/healthz` | Status only: "ok"/"error", no connection details |
 | API responses | No internal paths, no config values |
 | Error messages | Generic errors, no stack traces in production |
 | Logs | Redact passwords, tokens, keys |
@@ -5405,7 +5913,7 @@ Before proceeding, confirm you understand:
 |-------------|-------|
 | License type | MIT License |
 | License file | `LICENSE.md` (REQUIRED in project root) |
-| Copyright holder | `casapps` or individual/organization name |
+| Copyright holder | `{project_org}` or individual/organization name |
 | Year | Current year or year of first publication |
 
 ## LICENSE.md Structure
@@ -5413,7 +5921,7 @@ Before proceeding, confirm you understand:
 ```markdown
 MIT License
 
-Copyright (c) {year} casapps
+Copyright (c) {year} {project_org}
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -5594,11 +6102,9 @@ on: [push, pull_request]
 jobs:
   check-licenses:
     runs-on: ubuntu-latest
+    container: golang:alpine
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
 
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@latest
@@ -5661,7 +6167,7 @@ echo "3. Commit the changes"
 **Every README.md MUST include a license badge:**
 
 ```markdown
-[![License](https://img.shields.io/github/license/casapps/caspbx)](LICENSE.md)
+[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
 ```
 
 This badge should appear in the badges section near the top of README.md.
@@ -5735,9 +6241,9 @@ package main
 
 | Field | Value |
 |-------|-------|
-| **Name** | caspbx |
-| **Organization** | casapps |
-| **Official Site** | https://caspbx.casapps.us |
+| **Name** | {project_name} |
+| **Organization** | {project_org} |
+| **Official Site** | https://{project_name}.{project_org}.us |
 | **Repository** | {PLATFORM_REPO_URL} |
 | **README** | README.md |
 | **License** | MIT > LICENSE.md |
@@ -5757,17 +6263,17 @@ package main
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `caspbx` | Project name (inferred from path) | `jokes` |
-| `casapps` | Organization name (inferred from path) | `apimgr` |
+| `{project_name}` | Project name (inferred from path) | `jokes` |
+| `{project_org}` | Organization name (inferred from path) | `apimgr` |
 | `{gitprovider}` | Git hosting provider | `github`, `gitlab`, `private` |
 | **Rule** | Anything in `{}` is a variable | |
 | **Rule** | Anything NOT in `{}` is literal | `/etc/letsencrypt/live` is a real path |
 
 ### Inferring Variables from Path
 
-**NEVER hardcode `caspbx` or `casapps` - always infer from git remote or directory path.**
+**NEVER hardcode `{project_name}` or `{project_org}` - always infer from git remote or directory path.**
 
-**Recommended path structure:** `~/Projects/{gitprovider}/casapps/caspbx` (but works with any location)
+**Recommended path structure:** `~/Projects/{gitprovider}/{project_org}/{internal_name}` (but works with any location)
 
 ```bash
 # Method 1: Infer from git remote (PREFERRED - works regardless of directory location)
@@ -5785,7 +6291,7 @@ PROJECTNAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git
 PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|' || basename "$(dirname "$PWD")")
 ```
 
-**Note:** When using path-based inference, `PROJECTORG` will be the parent directory name, which may not match the git organization unless you follow the recommended `~/Projects/{gitprovider}/casapps/caspbx` structure. Git remote inference is always more reliable.
+**Note:** When using path-based inference, `PROJECTORG` will be the parent directory name, which may not match the git organization unless you follow the recommended `~/Projects/{gitprovider}/{project_org}/{internal_name}` structure. Git remote inference is always more reliable.
 
 ### Variable Capitalization
 
@@ -5793,17 +6299,17 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 
 | Placeholder | Renders As | Use Case | Example |
 |-------------|------------|----------|---------|
-| `caspbx` | lowercase | binaries, user-facing command name, docs, README | `jokes`, `/usr/local/bin/jokes` |
-| `CASPBX` | UPPERCASE | env vars, Makefile vars | `PROJECT_NAME=jokes` |
-| `casapps` | lowercase | filenames, paths, owners | `casjay`, `~/Projects/github/casjay/` |
-| `CASAPPS` | UPPERCASE | env vars, Makefile vars | `PROJECT_ORG=casjay` |
-| `caspbx` | lowercase, **frozen** | every on-disk identifier: `{config_dir}`, `{data_dir}`, `{log_dir}`, `{cache_dir}`, `{pid_file}`, systemd unit name, `io.github.casapps.caspbx` | `jokes` (even after a project rename) |
-| `CASPBX` | UPPERCASE, **frozen** | env vars referring to the stable identity | `INTERNAL_NAME=jokes` |
-| `io.github.casapps.caspbx` | derived | macOS LaunchAgent/LaunchDaemon Bundle ID — always `io.github.casapps.caspbx` | `io.github.casjay.jokes` |
+| `{project_name}` | lowercase | binaries, user-facing command name, docs, README | `jokes`, `/usr/local/bin/jokes` |
+| `{PROJECT_NAME}` | UPPERCASE | env vars, Makefile vars | `PROJECT_NAME=jokes` |
+| `{project_org}` | lowercase | filenames, paths, owners | `casjay`, `~/Projects/github/casjay/` |
+| `{PROJECT_ORG}` | UPPERCASE | env vars, Makefile vars | `PROJECT_ORG=casjay` |
+| `{internal_name}` | lowercase, **frozen** | every on-disk identifier: `{config_dir}`, `{data_dir}`, `{log_dir}`, `{cache_dir}`, `{pid_file}`, systemd unit name, `{plist_name}` | `jokes` (even after a project rename) |
+| `{INTERNAL_NAME}` | UPPERCASE, **frozen** | env vars referring to the stable identity | `INTERNAL_NAME=jokes` |
+| `{plist_name}` | derived | macOS LaunchAgent/LaunchDaemon Bundle ID — always `io.github.{project_org}.{internal_name}` | `io.github.casjay.jokes` |
 
 **Note:** camelCase (Go variables) and PascalCase (Go types) are NOT template placeholders. Write them directly in code using the actual project name (e.g., `jokesServer`, `type JokesServer struct`).
 
-**Mutability rule:** `caspbx` may change (project rename); `caspbx` may NOT. Initial value of `caspbx` equals `caspbx` and is frozen forever after first-time setup.
+**Mutability rule:** `{project_name}` may change (project rename); `{internal_name}` may NOT. Initial value of `{internal_name}` equals `{project_name}` and is frozen forever after first-time setup.
 
 **Examples (assuming no git remote, inferred from path):**
 
@@ -5821,14 +6327,14 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 
 **IMPORTANT: Project root can be located ANYWHERE on your system. This section describes a RECOMMENDED organizational structure, not a requirement.**
 
-**Recommended Format:** `~/Projects/{gitprovider}/casapps/caspbx`
+**Recommended Format:** `~/Projects/{gitprovider}/{project_org}/{internal_name}`
 
 | Component | Description | Examples |
 |-----------|-------------|----------|
 | `~/Projects/` | Base projects directory (recommended) | Can be `~/Projects/`, `~/Documents/`, `/opt/`, etc. |
 | `{gitprovider}` | Git hosting provider or `local` | `github`, `gitlab`, `bitbucket`, `private`, `local` |
-| `casapps` | Organization/username (inferred) | `apimgr`, `casjay`, `myorg` |
-| `caspbx` | Project name (inferred) | `jokes`, `icons`, `myproject` |
+| `{project_org}` | Organization/username (inferred) | `apimgr`, `casjay`, `myorg` |
+| `{project_name}` | Project name (inferred) | `jokes`, `icons`, `myproject` |
 
 **Examples of recommended structure:**
 ```
@@ -5849,7 +6355,7 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 
 ### Special: `local` Provider
 
-`~/Projects/local/casapps/caspbx` (or any other location) is used for:
+`~/Projects/local/{project_org}/{internal_name}` (or any other location) is used for:
 - **Prototyping** - Quick experiments and proof-of-concept
 - **Bootstrapping** - Initial project setup before pushing to VCS
 - **Local-only development** - Projects not intended for remote hosting
@@ -5937,6 +6443,8 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 │   ├── api.md              # API documentation
 │   ├── cli.md              # CLI reference (if applicable)
 │   ├── admin.md            # Admin panel guide
+│   ├── security.md         # Security, public endpoints, and reporting
+│   ├── integrations.md     # External identity and protocol integrations
 │   ├── development.md      # Development guide
 │   ├── stylesheets/        # MkDocs theme customization
 │   │   ├── dark.css        # Dark theme customization for ReadTheDocs
@@ -5944,7 +6452,7 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 │   └── requirements.txt    # Python dependencies for MkDocs
 ├── src/                    # All source files
 ├── scripts/                # Production/install scripts (if any)
-├── tests/                  # All development/test scripts and files
+├── tests/                  # Repository-root executable integration test scripts (Go unit tests stay next to code as *_test.go)
 │   ├── run_tests.sh        # Auto-detect and run tests (REQUIRED)
 │   ├── docker.sh           # Beta testing with Docker (REQUIRED)
 │   └── incus.sh            # Beta testing with Incus (REQUIRED)
@@ -5954,12 +6462,14 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 │   ├── docker-compose.yml  # Production compose (NO debug)
 │   ├── docker-compose.dev.yml  # Development compose
 │   ├── docker-compose.test.yml # Test compose (DEBUG=true)
-│   └── file_system/        # Container filesystem overlay
-│       └── usr/
-│           └── local/
-│               └── bin/
-│                   └── entrypoint.sh  # Container entrypoint
-├── rootfs/                 # Runtime volume data (gitignored)
+│   └── rootfs/            # Build-time container filesystem overlay (committed)
+│       ├── usr/
+│       │   └── local/
+│       │       └── bin/
+│       │           └── entrypoint.sh  # Container entrypoint
+│       ├── etc/           # Optional service/supervisor configs for container images
+│       └── config/        # Optional image-bundled defaults for AIO/service configs
+├── volumes/                # Runtime volume data if created locally (gitignored)
 │   ├── config/             # Config volumes per service
 │   ├── data/               # Data volumes per service
 │   └── db/                 # Database volumes per type
@@ -5968,8 +6478,10 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 ├── README.md               # Production first, dev last
 ├── LICENSE.md              # MIT + embedded licenses
 ├── AI.md                   # Project specification
-├── TODO.AI.md              # Task tracking for 3+ tasks
-├── PLAN.AI.md                 # Implementation plan (optional)
+├── TODO.AI.md              # Task tracking for 3+ tasks (AI-owned)
+├── TODO.md                 # Task tracking (human-owned, optional - AI marks items done only)
+├── PLAN.AI.md              # Implementation plan (AI-owned, optional)
+├── PLAN.md                 # Implementation plan (human-owned, optional - AI marks items done only)
 ├── Jenkinsfile             # Jenkins pipeline
 ├── release.txt             # Version tracking
 └── site.txt                # Official site URL (optional)
@@ -5978,7 +6490,8 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 **Gitignored directories:**
 - `binaries/` - All build output (local + all platforms)
 - `releases/` - Release output
-- `rootfs/` - Runtime volume data
+- `docker/rootfs/` - Build-time container overlay
+- `volumes/` - Runtime volume data (if created locally)
 
 ### .gitignore (REQUIRED)
 
@@ -6095,7 +6608,7 @@ binaries/
 releases/
 
 # Runtime volume data (NEVER commit)
-rootfs/
+volumes/
 
 # IDE
 .idea/
@@ -6130,7 +6643,7 @@ CLAUDE.local.md
 Jenkinsfile
 
 # Runtime volume data (NEVER include in image)
-rootfs/
+volumes/
 
 # Build output (container builds from source)
 binaries/
@@ -6166,7 +6679,7 @@ Makefile
 |----------|------------|-------------|
 | **Git** | `.git/`, `.gitignore`, `.gitattributes` | Not needed, adds size |
 | **CI/CD** | `.github/`, `.gitea/`, `.forgejo/`, `.gitlab-ci.yml`, `Jenkinsfile` | CI files not needed in container |
-| **Runtime** | `rootfs/` | Runtime volumes, not build-time |
+| **Runtime** | `volumes/` | Runtime volumes, not build-time |
 | **Build output** | `binaries/`, `releases/` | Container builds from source |
 | **Tests** | `tests/` | Test scripts not needed in production |
 | **Docs** | `docs/`, `*.md` | Documentation not needed in container |
@@ -6180,8 +6693,8 @@ Makefile
 |------------|----------|
 | `src/` | Source code - required for build |
 | `go.mod`, `go.sum` | Go module files - required |
-| `docker/` | Dockerfile, rootfs overlay - required |
-| `docker/file_system/` | Build-time overlay files (entrypoint.sh) |
+| `docker/` | Dockerfile and compose files - required |
+| `docker/rootfs/` | Build-time overlay files (entrypoint.sh, service configs) |
 
 **RULE: Keep the base directory organized and clean - no clutter!**
 
@@ -6297,13 +6810,13 @@ cd /path/to/project && docker build -f docker/Dockerfile .
 | **Always Latest Stable** | Use latest stable Go version (NEVER hardcode specific versions) |
 | **Build Only** | Go is only for building, not runtime (single static binary) |
 | **go.mod** | Set to current latest stable version |
-| **Docker** | Use `golang:alpine` for builds (always has latest stable Go) |
-| **CI/CD** | Use `go-version: 'stable'` in workflows (NEVER hardcode like `1.21`) |
-| **No Pinning** | Don't pin to patch versions unless compatibility issue |
+| **Docker** | Use `golang:alpine` for builds (always use this exact unpinned image) |
+| **CI/CD** | Build/test inside `golang:alpine` jobs or `docker run ... golang:alpine` (never `setup-go`, never pinned tags) |
+| **No Pinning** | Don't hardcode specific Go versions in docs, examples, Docker, or CI workflows |
 
 **go.mod Example:**
 ```
-module github.com/casapps/caspbx
+module github.com/{project_org}/{internal_name}
 
 go 1.xx  // Use current latest stable version
 
@@ -6545,7 +7058,7 @@ require github.com/tursodatabase/libsql-client-go v0.0.0-20240902231107-85af5b9d
 ### Example go.mod
 
 ```go
-module github.com/casapps/caspbx
+module github.com/{project_org}/{internal_name}
 
 go 1.xx  // Use current latest stable version
 
@@ -6707,36 +7220,36 @@ Before proceeding, confirm you understand:
 
 | Type | Path |
 |------|------|
-| Binary | `/usr/local/bin/caspbx` |
-| Config | `/etc/casapps/caspbx/` |
-| Config File | `/etc/casapps/caspbx/server.yml` |
-| Data | `/var/lib/casapps/caspbx/` |
-| Cache | `/var/cache/casapps/caspbx/` |
-| Logs | `/var/log/casapps/caspbx/` |
-| Log File | `/var/log/casapps/caspbx/server.log` |
-| Backup | `/mnt/Backups/casapps/caspbx/` |
-| PID File | `/var/run/casapps/caspbx.pid` |
-| SSL | `/etc/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `/var/lib/casapps/caspbx/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `/var/lib/casapps/caspbx/db/` (server.db, users.db) |
-| Service | `/etc/systemd/system/caspbx.service` |
+| Binary | `/usr/local/bin/{project_name}` |
+| Config | `/etc/{project_org}/{internal_name}/` |
+| Config File | `/etc/{project_org}/{internal_name}/server.yml` |
+| Data | `/var/lib/{project_org}/{internal_name}/` |
+| Cache | `/var/cache/{project_org}/{internal_name}/` |
+| Logs | `/var/log/{project_org}/{internal_name}/` |
+| Log File | `/var/log/{project_org}/{internal_name}/server.log` |
+| Backup | `/mnt/Backups/{project_org}/{internal_name}/` |
+| PID File | `/var/run/{project_org}/{internal_name}.pid` |
+| SSL | `/etc/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `/var/lib/{project_org}/{internal_name}/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `/var/lib/{project_org}/{internal_name}/db/` (server.db, users.db) |
+| Service | `/etc/systemd/system/{internal_name}.service` |
 
 ### User (non-privileged)
 
 | Type | Path |
 |------|------|
-| Binary | `~/.local/bin/caspbx` |
-| Config | `~/.config/casapps/caspbx/` |
-| Config File | `~/.config/casapps/caspbx/server.yml` |
-| Data | `~/.local/share/casapps/caspbx/` |
-| Cache | `~/.cache/casapps/caspbx/` |
-| Logs | `~/.local/log/casapps/caspbx/` |
-| Log File | `~/.local/log/casapps/caspbx/server.log` |
-| Backup | `~/.local/share/Backups/casapps/caspbx/` |
-| PID File | `~/.local/share/casapps/caspbx/caspbx.pid` |
-| SSL | `~/.config/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `~/.local/share/casapps/caspbx/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `~/.local/share/casapps/caspbx/db/` (server.db, users.db) |
+| Binary | `~/.local/bin/{project_name}` |
+| Config | `~/.config/{project_org}/{internal_name}/` |
+| Config File | `~/.config/{project_org}/{internal_name}/server.yml` |
+| Data | `~/.local/share/{project_org}/{internal_name}/` |
+| Cache | `~/.cache/{project_org}/{internal_name}/` |
+| Logs | `~/.local/log/{project_org}/{internal_name}/` |
+| Log File | `~/.local/log/{project_org}/{internal_name}/server.log` |
+| Backup | `~/.local/share/Backups/{project_org}/{internal_name}/` |
+| PID File | `~/.local/share/{project_org}/{internal_name}/{internal_name}.pid` |
+| SSL | `~/.config/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `~/.local/share/{project_org}/{internal_name}/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `~/.local/share/{project_org}/{internal_name}/db/` (server.db, users.db) |
 
 ---
 
@@ -6746,37 +7259,37 @@ Before proceeding, confirm you understand:
 
 | Type | Path |
 |------|------|
-| Binary | `/usr/local/bin/caspbx` |
-| Config | `/Library/Application Support/casapps/caspbx/` |
-| Config File | `/Library/Application Support/casapps/caspbx/server.yml` |
-| Data | `/Library/Application Support/casapps/caspbx/data/` |
-| Cache | `/Library/Caches/casapps/caspbx/` |
-| Logs | `/Library/Logs/casapps/caspbx/` |
-| Log File | `/Library/Logs/casapps/caspbx/server.log` |
-| Backup | `/Library/Backups/casapps/caspbx/` |
-| PID File | `/var/run/casapps/caspbx.pid` |
-| SSL | `/Library/Application Support/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `/Library/Application Support/casapps/caspbx/data/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `/Library/Application Support/casapps/caspbx/db/` (server.db, users.db) |
-| Service | `/Library/LaunchDaemons/io.github.casapps.caspbx.plist` |
+| Binary | `/usr/local/bin/{project_name}` |
+| Config | `/Library/Application Support/{project_org}/{internal_name}/` |
+| Config File | `/Library/Application Support/{project_org}/{internal_name}/server.yml` |
+| Data | `/Library/Application Support/{project_org}/{internal_name}/data/` |
+| Cache | `/Library/Caches/{project_org}/{internal_name}/` |
+| Logs | `/Library/Logs/{project_org}/{internal_name}/` |
+| Log File | `/Library/Logs/{project_org}/{internal_name}/server.log` |
+| Backup | `/Library/Backups/{project_org}/{internal_name}/` |
+| PID File | `/var/run/{project_org}/{internal_name}.pid` |
+| SSL | `/Library/Application Support/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `/Library/Application Support/{project_org}/{internal_name}/data/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `/Library/Application Support/{project_org}/{internal_name}/db/` (server.db, users.db) |
+| Service | `/Library/LaunchDaemons/{plist_name}.plist` |
 
 ### User (non-privileged)
 
 | Type | Path |
 |------|------|
-| Binary | `~/bin/caspbx` or `/usr/local/bin/caspbx` |
-| Config | `~/Library/Application Support/casapps/caspbx/` |
-| Config File | `~/Library/Application Support/casapps/caspbx/server.yml` |
-| Data | `~/Library/Application Support/casapps/caspbx/` |
-| Cache | `~/Library/Caches/casapps/caspbx/` |
-| Logs | `~/Library/Logs/casapps/caspbx/` |
-| Log File | `~/Library/Logs/casapps/caspbx/server.log` |
-| Backup | `~/Library/Backups/casapps/caspbx/` |
-| PID File | `~/Library/Application Support/casapps/caspbx/caspbx.pid` |
-| SSL | `~/Library/Application Support/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `~/Library/Application Support/casapps/caspbx/data/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `~/Library/Application Support/casapps/caspbx/db/` (server.db, users.db) |
-| Service | `~/Library/LaunchAgents/io.github.casapps.caspbx.plist` |
+| Binary | `~/bin/{project_name}` or `/usr/local/bin/{project_name}` |
+| Config | `~/Library/Application Support/{project_org}/{internal_name}/` |
+| Config File | `~/Library/Application Support/{project_org}/{internal_name}/server.yml` |
+| Data | `~/Library/Application Support/{project_org}/{internal_name}/` |
+| Cache | `~/Library/Caches/{project_org}/{internal_name}/` |
+| Logs | `~/Library/Logs/{project_org}/{internal_name}/` |
+| Log File | `~/Library/Logs/{project_org}/{internal_name}/server.log` |
+| Backup | `~/Library/Backups/{project_org}/{internal_name}/` |
+| PID File | `~/Library/Application Support/{project_org}/{internal_name}/{internal_name}.pid` |
+| SSL | `~/Library/Application Support/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `~/Library/Application Support/{project_org}/{internal_name}/data/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `~/Library/Application Support/{project_org}/{internal_name}/db/` (server.db, users.db) |
+| Service | `~/Library/LaunchAgents/{plist_name}.plist` |
 
 ---
 
@@ -6786,36 +7299,36 @@ Before proceeding, confirm you understand:
 
 | Type | Path |
 |------|------|
-| Binary | `/usr/local/bin/caspbx` |
-| Config | `/usr/local/etc/casapps/caspbx/` |
-| Config File | `/usr/local/etc/casapps/caspbx/server.yml` |
-| Data | `/var/db/casapps/caspbx/` |
-| Cache | `/var/cache/casapps/caspbx/` |
-| Logs | `/var/log/casapps/caspbx/` |
-| Log File | `/var/log/casapps/caspbx/server.log` |
-| Backup | `/var/backups/casapps/caspbx/` |
-| PID File | `/var/run/casapps/caspbx.pid` |
-| SSL | `/usr/local/etc/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `/var/db/casapps/caspbx/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `/var/db/casapps/caspbx/db/` (server.db, users.db) |
-| Service | `/usr/local/etc/rc.d/caspbx` |
+| Binary | `/usr/local/bin/{project_name}` |
+| Config | `/usr/local/etc/{project_org}/{internal_name}/` |
+| Config File | `/usr/local/etc/{project_org}/{internal_name}/server.yml` |
+| Data | `/var/db/{project_org}/{internal_name}/` |
+| Cache | `/var/cache/{project_org}/{internal_name}/` |
+| Logs | `/var/log/{project_org}/{internal_name}/` |
+| Log File | `/var/log/{project_org}/{internal_name}/server.log` |
+| Backup | `/var/backups/{project_org}/{internal_name}/` |
+| PID File | `/var/run/{project_org}/{internal_name}.pid` |
+| SSL | `/usr/local/etc/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `/var/db/{project_org}/{internal_name}/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `/var/db/{project_org}/{internal_name}/db/` (server.db, users.db) |
+| Service | `/usr/local/etc/rc.d/{internal_name}` |
 
 ### User (non-privileged)
 
 | Type | Path |
 |------|------|
-| Binary | `~/.local/bin/caspbx` |
-| Config | `~/.config/casapps/caspbx/` |
-| Config File | `~/.config/casapps/caspbx/server.yml` |
-| Data | `~/.local/share/casapps/caspbx/` |
-| Cache | `~/.cache/casapps/caspbx/` |
-| Logs | `~/.local/log/casapps/caspbx/` |
-| Log File | `~/.local/log/casapps/caspbx/server.log` |
-| Backup | `~/.local/share/Backups/casapps/caspbx/` |
-| PID File | `~/.local/share/casapps/caspbx/caspbx.pid` |
-| SSL | `~/.config/casapps/caspbx/ssl/` (letsencrypt/, local/) |
-| Security | `~/.local/share/casapps/caspbx/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `~/.local/share/casapps/caspbx/db/` (server.db, users.db) |
+| Binary | `~/.local/bin/{project_name}` |
+| Config | `~/.config/{project_org}/{internal_name}/` |
+| Config File | `~/.config/{project_org}/{internal_name}/server.yml` |
+| Data | `~/.local/share/{project_org}/{internal_name}/` |
+| Cache | `~/.cache/{project_org}/{internal_name}/` |
+| Logs | `~/.local/log/{project_org}/{internal_name}/` |
+| Log File | `~/.local/log/{project_org}/{internal_name}/server.log` |
+| Backup | `~/.local/share/Backups/{project_org}/{internal_name}/` |
+| PID File | `~/.local/share/{project_org}/{internal_name}/{internal_name}.pid` |
+| SSL | `~/.config/{project_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
+| Security | `~/.local/share/{project_org}/{internal_name}/security/` (geoip/, blocklists/, cve/, trivy/) |
+| SQLite DB | `~/.local/share/{project_org}/{internal_name}/db/` (server.db, users.db) |
 
 ---
 
@@ -6825,34 +7338,34 @@ Before proceeding, confirm you understand:
 
 | Type | Path |
 |------|------|
-| Binary | `C:\Program Files\casapps\caspbx\caspbx.exe` |
-| Config | `%ProgramData%\casapps\caspbx\` |
-| Config File | `%ProgramData%\casapps\caspbx\server.yml` |
-| Data | `%ProgramData%\casapps\caspbx\data\` |
-| Cache | `%ProgramData%\casapps\caspbx\cache\` |
-| Logs | `%ProgramData%\casapps\caspbx\logs\` |
-| Log File | `%ProgramData%\casapps\caspbx\logs\server.log` |
-| Backup | `%ProgramData%\Backups\casapps\caspbx\` |
-| SSL | `%ProgramData%\casapps\caspbx\ssl\` (letsencrypt\, local\) |
-| Security | `%ProgramData%\casapps\caspbx\data\security\` (geoip\, blocklists\, cve\, trivy\) |
-| SQLite DB | `%ProgramData%\casapps\caspbx\db\` (server.db, users.db) |
+| Binary | `C:\Program Files\{project_org}\{internal_name}\{project_name}.exe` |
+| Config | `%ProgramData%\{project_org}\{internal_name}\` |
+| Config File | `%ProgramData%\{project_org}\{internal_name}\server.yml` |
+| Data | `%ProgramData%\{project_org}\{internal_name}\data\` |
+| Cache | `%ProgramData%\{project_org}\{internal_name}\cache\` |
+| Logs | `%ProgramData%\{project_org}\{internal_name}\logs\` |
+| Log File | `%ProgramData%\{project_org}\{internal_name}\logs\server.log` |
+| Backup | `%ProgramData%\Backups\{project_org}\{internal_name}\` |
+| SSL | `%ProgramData%\{project_org}\{internal_name}\ssl\` (letsencrypt\, local\) |
+| Security | `%ProgramData%\{project_org}\{internal_name}\data\security\` (geoip\, blocklists\, cve\, trivy\) |
+| SQLite DB | `%ProgramData%\{project_org}\{internal_name}\db\` (server.db, users.db) |
 | Service | Windows Service Manager |
 
 ### User (non-privileged)
 
 | Type | Path |
 |------|------|
-| Binary | `%LocalAppData%\casapps\caspbx\caspbx.exe` |
-| Config | `%AppData%\casapps\caspbx\` |
-| Config File | `%AppData%\casapps\caspbx\server.yml` |
-| Data | `%LocalAppData%\casapps\caspbx\` |
-| Cache | `%LocalAppData%\casapps\caspbx\cache\` |
-| Logs | `%LocalAppData%\casapps\caspbx\logs\` |
-| Log File | `%LocalAppData%\casapps\caspbx\logs\server.log` |
-| Backup | `%LocalAppData%\Backups\casapps\caspbx\` |
-| SSL | `%AppData%\casapps\caspbx\ssl\` (letsencrypt\, local\) |
-| Security | `%LocalAppData%\casapps\caspbx\security\` (geoip\, blocklists\, cve\, trivy\) |
-| SQLite DB | `%LocalAppData%\casapps\caspbx\db\` (server.db, users.db) |
+| Binary | `%LocalAppData%\{project_org}\{internal_name}\{project_name}.exe` |
+| Config | `%AppData%\{project_org}\{internal_name}\` |
+| Config File | `%AppData%\{project_org}\{internal_name}\server.yml` |
+| Data | `%LocalAppData%\{project_org}\{internal_name}\` |
+| Cache | `%LocalAppData%\{project_org}\{internal_name}\cache\` |
+| Logs | `%LocalAppData%\{project_org}\{internal_name}\logs\` |
+| Log File | `%LocalAppData%\{project_org}\{internal_name}\logs\server.log` |
+| Backup | `%LocalAppData%\Backups\{project_org}\{internal_name}\` |
+| SSL | `%AppData%\{project_org}\{internal_name}\ssl\` (letsencrypt\, local\) |
+| Security | `%LocalAppData%\{project_org}\{internal_name}\security\` (geoip\, blocklists\, cve\, trivy\) |
+| SQLite DB | `%LocalAppData%\{project_org}\{internal_name}\db\` (server.db, users.db) |
 
 ---
 
@@ -6862,23 +7375,23 @@ Before proceeding, confirm you understand:
 
 | Type | Path |
 |------|------|
-| Binary | `/usr/local/bin/caspbx` |
-| Config | `/config/caspbx/` |
-| Config File | `/config/caspbx/server.yml` |
-| Security DBs | `/data/caspbx/security/` (geoip, blocklists, cve, trivy) |
-| Data | `/data/caspbx/` |
-| Cache | `/data/caspbx/cache/` |
-| Logs | `/data/log/caspbx/` |
-| Log File | `/data/log/caspbx/server.log` |
+| Binary | `/usr/local/bin/{project_name}` |
+| Config | `/config/{project_name}/` |
+| Config File | `/config/{project_name}/server.yml` |
+| Security DBs | `/data/{project_name}/security/` (geoip, blocklists, cve, trivy) |
+| Data | `/data/{project_name}/` |
+| Cache | `/data/{project_name}/cache/` |
+| Logs | `/data/log/{project_name}/` |
+| Log File | `/data/log/{project_name}/server.log` |
 | SQLite DB | `/data/db/sqlite/` (server.db, users.db) |
-| Backup | `/data/backups/caspbx/` |
+| Backup | `/data/backups/{project_name}/` |
 | Internal Port | `80` |
 
 **Docker volume mounts map host paths to container paths:**
 ```yaml
 volumes:
-  - './rootfs/config:/config:z'   # Host ./rootfs/config → Container /config
-  - './rootfs/data:/data:z'       # Host ./rootfs/data → Container /data
+  - './volumes/config:/config:z'   # Host ./volumes/config → Container /config
+  - './volumes/data:/data:z'       # Host ./volumes/data → Container /data
 ```
 
 ---
@@ -6889,7 +7402,7 @@ Before proceeding, confirm you understand:
 - [ ] Each OS has specific paths for privileged and non-privileged users
 - [ ] Config file is ALWAYS `server.yml` (not .yaml)
 - [ ] Docker uses simplified paths (/config, /data)
-- [ ] All paths follow the casapps/caspbx pattern
+- [ ] All paths follow the {project_org}/{internal_name} pattern
 
 ---
 
@@ -6974,7 +7487,7 @@ func normalizePath(input string) string {
     return cleaned
 }
 
-// validatePathSegment checks a single path segment (e.g., "admin" in "/admin/dashboard")
+// validatePathSegment checks a single path segment (e.g., "admin" in "/server/admin/dashboard")
 func validatePathSegment(segment string) error {
     if segment == "" {
         return ErrInvalidPath
@@ -7034,11 +7547,11 @@ func SafePath(input string) (string, error) {
 | `/my//admin` | `my/admin` | ✓ |
 | `///a//b///` | `a/b` | ✓ |
 | `/../admin` | ✗ rejected | Path traversal |
-| `/admin/../secret` | ✗ rejected | Path traversal |
-| `/admin/..` | ✗ rejected | Path traversal |
+| `/server/admin/../secret` | ✗ rejected | Path traversal |
+| `/server/admin/..` | ✗ rejected | Path traversal |
 | `....` | ✗ rejected | Invalid chars |
 | `/Admin` | ✗ rejected | Uppercase not allowed |
-| `/admin/<script>` | ✗ rejected | Invalid chars |
+| `/server/admin/<script>` | ✗ rejected | Invalid chars |
 
 ### Apply Everywhere
 
@@ -7137,12 +7650,12 @@ func PathSecurityMiddleware(next http.Handler) http.Handler {
 
 | Request | Result | Status |
 |---------|--------|--------|
-| `GET /admin//dashboard` | `/{admin_path}/dashboard` | 200 |
+| `GET /server/admin//config//settings` | `/server/{admin_path}/config/settings` | 200 |
 | `GET //api///v1//users` | `/api/{api_version}/users` | 200 |
 | `GET ///` | `/` | 200 |
-| `GET /static/../admin` | Blocked | 400 |
+| `GET /static/../server/admin` | Blocked | 400 |
 | `GET /api/{api_version}/files/..%2F..%2Fetc/passwd` | Blocked | 400 |
-| `GET /admin/....//secret` | Blocked | 400 |
+| `GET /server/admin/....//secret` | Blocked | 400 |
 
 ### File Path Security
 
@@ -7399,7 +7912,7 @@ Self-Healing Successful?                        │
 
 **The admin panel remains accessible and provides guidance for fixing issues.**
 
-#### Maintenance Dashboard (`/{admin_path}`)
+#### Maintenance Dashboard (`/server/{admin_path}`)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -7501,7 +8014,7 @@ X-Maintenance-Reason: database_connection
 
 **Why headers, not body fields:** `Retry-After` is a standard HTTP header (RFC 9110 §10.2.3) that retry-aware clients honor automatically. Putting it in the body duplicates the wire and risks divergence on retry. `X-Maintenance-*` are operator-facing diagnostics, not application data — same reasoning.
 
-### /healthz in Maintenance Mode
+### /server/healthz in Maintenance Mode
 
 ```json
 {
@@ -7942,8 +8455,8 @@ func (req *CreateUserRequest) Parse() (*User, error) {
 
 | User Type | Path |
 |-----------|------|
-| Root | `/etc/casapps/caspbx/server.yml` |
-| Regular | `~/.config/casapps/caspbx/server.yml` |
+| Root | `/etc/{project_org}/{internal_name}/server.yml` |
+| Regular | `~/.config/{project_org}/{internal_name}/server.yml` |
 
 ### Migration
 
@@ -7990,35 +8503,41 @@ func (req *CreateUserRequest) Parse() (*User, error) {
 
 | Mode | How Started | Port Restriction | Privilege Handling |
 |------|-------------|------------------|-------------------|
-| **Service (escalated)** | `sudo caspbx --service install` | Any port | Runs as root/admin, binary drops after binding |
-| **User ($USER)** | `caspbx` | >1024 only | Runs as calling user, no escalation |
+| **Service (escalated)** | `sudo {project_name} --service install` | Any port | Runs as root/admin, binary drops after binding |
+| **User ($USER)** | `{project_name}` | >1024 only | Runs as calling user, no escalation |
 
 #### Service Installation (One-Time Escalation)
 
-**Escalation is only needed once** during service installation. The binary configures the service to always run as root/admin.
+**Escalation is only needed once** during service installation. By default, the binary configures the service to start with elevated privileges only long enough to perform privileged setup, then run the app as a dedicated service account.
+
+**Default rule:** server/service processes MUST run as a dedicated system user/group whenever the project supports privilege drop.
+
+**Project-specific exception:** a project may run permanently as root/Administrator only when its core function requires ongoing OS-level privileges and privilege drop would break the app. This exception MUST be explicitly justified in IDEA.md.
 
 ```bash
 # Unix-like (Linux, macOS, FreeBSD)
-sudo caspbx --service install
-# Binary creates service file configured to run as root
-# All future service starts run as root automatically
+sudo {project_name} --service install
+# Binary creates service file for privileged startup + runtime privilege drop
+# Runtime stays on dedicated service account unless the project explicitly requires permanent root
 
 # Windows (run as Administrator)
-caspbx.exe --service install
-# Binary creates Windows service with Virtual Service Account (NT SERVICE\caspbx)
+{project_name}.exe --service install
+# Binary creates Windows service with Virtual Service Account (NT SERVICE\{project_name})
 ```
 
 #### Unix-Like Platforms (Linux, macOS, FreeBSD)
 
-**Service runs as root, binary drops privileges after port binding.**
+**Default:** service starts with elevated privileges only when needed, then drops to dedicated service user after privileged setup/port binding.
+
+**Permanent-root exception:** allowed only for project-defined cases such as firewall control, packet capture, TUN/TAP/VPN, mount/filesystem management, package/service management, or other ongoing kernel/device operations.
 
 | Step | Running As | Actions |
 |------|-----------|---------|
 | 1 | **root** | Service manager starts binary |
-| 2 | **root** | Create system user `caspbx` (if needed) |
+| 2 | **root** | Create system user `{project_name}` (if needed) |
 | 3 | **root** | Create directories, set ownership |
 | 4 | **root** | Bind configured ports (any port works) |
-| 5 | **root→user** | **DROP PRIVILEGES** to `caspbx` user |
+| 5 | **root→user** | **DROP PRIVILEGES** to `{project_name}` user |
 | 6 | **user** | Initialize config, database, etc. |
 | 7 | **user** | Start serving requests |
 
@@ -8027,17 +8546,23 @@ Service start (automatic after install):
     ├─ Start as root (service manager)
     ├─ Create user/dirs if needed
     ├─ Bind port 80/443 (root)
-    ├─ Drop to caspbx user
+    ├─ Drop to {project_name} user
     └─ Serve requests (user)
 ```
 
 **Container note (Docker/Incus/LXC):**
 ```dockerfile
-# CORRECT: No USER directive - binary handles privilege drop
+# CORRECT (default): No USER directive if the binary must start privileged then drop
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
-# WRONG: Don't do this - prevents privileged port binding
-# USER caspbx
+# ALSO CORRECT when the project never needs privileged startup:
+# USER {project_name}
+
+# WRONG: Hardcode permanent root when the project could run unprivileged
+# and has no documented IDEA.md exception
+#
+# WRONG in projects that need privileged startup: prevents privileged port binding
+# USER {project_name}
 ```
 
 #### Windows
@@ -8046,10 +8571,10 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 | Step | Running As | Actions |
 |------|-----------|---------|
-| 1 | **NT SERVICE\\caspbx** | Service manager starts binary |
-| 2 | **NT SERVICE\\caspbx** | Create directories (has access via ACL) |
-| 3 | **NT SERVICE\\caspbx** | Bind configured ports |
-| 4 | **NT SERVICE\\caspbx** | Initialize and serve requests |
+| 1 | **NT SERVICE\\{internal_name}** | Service manager starts binary |
+| 2 | **NT SERVICE\\{internal_name}** | Create directories (has access via ACL) |
+| 3 | **NT SERVICE\\{internal_name}** | Bind configured ports |
+| 4 | **NT SERVICE\\{internal_name}** | Initialize and serve requests |
 
 **Note:** VSA is auto-created by Windows when service is installed. No manual user creation needed.
 
@@ -8059,7 +8584,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 ```bash
 # No sudo - runs as current user
-caspbx --port 8080
+{project_name} --port 8080
 
 # Port must be >1024 (unprivileged)
 # Paths use user directories (~/.config/, ~/.local/, etc.)
@@ -8276,8 +8801,8 @@ caspbx --port 8080
    Error: Cannot bind to port 80
 
    Port 80 requires elevated privileges. Options:
-     1. Install as service (requires admin): sudo caspbx --service install
-     2. Use high port (no admin needed): caspbx --port 8080
+     1. Install as service (requires admin): sudo {project_name} --service install
+     2. Use high port (no admin needed): {project_name} --port 8080
    ```
 
 #### Commands Requiring Escalation
@@ -8308,7 +8833,7 @@ caspbx --port 8080
 | `--maintenance mode` | 🔐 Auth | Requires admin auth OR root | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
 
-**Key insight:** After service install, the `caspbx` user owns all data directories. However, sensitive operations require AUTHORIZATION, not just file access.
+**Key insight:** After service install, the `{project_name}` user owns all data directories. However, sensitive operations require AUTHORIZATION, not just file access.
 
 #### Sensitive Operations (🔐 Auth Required)
 
@@ -8323,7 +8848,7 @@ caspbx --port 8080
 **Setup authorization flow:**
 
 ```
-User runs: caspbx --maintenance setup
+User runs: {project_name} --maintenance setup
 
 Binary checks:
 ├─ Is database empty (no admins exist)?
@@ -8335,21 +8860,21 @@ Binary checks:
 └─ NO authorization → Reject with:
    "Setup already completed. To reconfigure:
     1. Use existing admin credentials via WebUI
-    2. Run as root: sudo caspbx --maintenance setup
+    2. Run as root: sudo {project_name} --maintenance setup
     3. Use setup token shown at first-run (if you saved it)"
 ```
 
 **Restore authorization flow:**
 
 ```
-User runs: caspbx --maintenance restore backup.tar.gz
+User runs: {project_name} --maintenance restore backup.tar.gz
 
 Binary checks:
 ├─ Is database empty (first-run/fresh install)?
 │   └─ YES → Allow restore (nothing to protect)
 ├─ Is user root?
 │   └─ YES → Allow restore (with confirmation prompt)
-├─ Is user the service user (caspbx)?
+├─ Is user the service user ({project_name})?
 │   └─ YES → Require admin credentials:
 │            "This will OVERWRITE all data. Enter admin credentials to confirm."
 │            └─ Valid credentials → Allow restore
@@ -8362,12 +8887,12 @@ Binary checks:
 **Mode change authorization flow:**
 
 ```
-User runs: caspbx --maintenance mode development
+User runs: {project_name} --maintenance mode development
 
 Binary checks:
 ├─ Is user root?
 │   └─ YES → Allow (with warning about security implications)
-├─ Is user the service user (caspbx)?
+├─ Is user the service user ({project_name})?
 │   └─ YES → Require admin credentials
 └─ Random user → Reject
 ```
@@ -8391,9 +8916,9 @@ func needsEscalationForService() bool {
         return !isElevated() && isWindowsServiceInstalled()
     }
     // Unix: check for system service files
-    if fileExists("/etc/systemd/system/caspbx.service") ||
-       fileExists("/Library/LaunchDaemons/io.github.casapps.caspbx.plist") ||
-       fileExists("/usr/local/etc/rc.d/caspbx") {
+    if fileExists("/etc/systemd/system/{internal_name}.service") ||
+       fileExists("/Library/LaunchDaemons/{plist_name}.plist") ||
+       fileExists("/usr/local/etc/rc.d/{internal_name}") {
         // System service installed - need elevated privileges to manage
         return !isElevated()
     }
@@ -8481,7 +9006,7 @@ func canChangeMode() (bool, string) {
 **Smart escalation behavior:**
 
 ```
-User runs: caspbx --service --install
+User runs: {project_name} --service --install
 
 Binary checks:
 ├─ Already root/admin? → Proceed with system service
@@ -8496,7 +9021,7 @@ Binary checks:
 **Port fallback behavior:**
 
 ```
-User runs: caspbx --port 80
+User runs: {project_name} --port 80
 
 Binary checks:
 ├─ Already root/admin? → Bind port 80, proceed
@@ -8508,35 +9033,35 @@ Binary checks:
 └─ Warn user of actual port in use
 ```
 
-#### The `caspbx` System User/Group
+#### The `{project_name}` System User/Group
 
 **Created automatically during first root/service startup.**
 
 | Property | Value |
 |----------|-------|
-| **Username** | `caspbx` |
-| **Group** | `caspbx` |
+| **Username** | `{project_name}` |
+| **Group** | `{project_name}` |
 | **Shell** | `/usr/sbin/nologin` (no login) |
-| **Home** | `/var/lib/casapps/caspbx` |
+| **Home** | `/var/lib/{project_org}/{internal_name}` |
 | **UID/GID** | Auto-assigned by system |
 | **Type** | System user (UID < 1000 on Linux) |
 
-**What the `caspbx` user CAN do:**
+**What the `{project_name}` user CAN do:**
 
 | Permission | Details |
 |------------|---------|
-| Read/write config | `/etc/casapps/caspbx/` |
-| Read/write data | `/var/lib/casapps/caspbx/` |
-| Read/write cache | `/var/cache/casapps/caspbx/` |
-| Read/write logs | `/var/log/casapps/caspbx/` |
-| Read/write backups | `/var/lib/Backups/casapps/caspbx/` or `/mnt/Backups/...` |
+| Read/write config | `/etc/{project_org}/{internal_name}/` |
+| Read/write data | `/var/lib/{project_org}/{internal_name}/` |
+| Read/write cache | `/var/cache/{project_org}/{internal_name}/` |
+| Read/write logs | `/var/log/{project_org}/{internal_name}/` |
+| Read/write backups | `/var/lib/Backups/{project_org}/{internal_name}/` or `/mnt/Backups/...` |
 | Use bound sockets | Inherited from root before privilege drop |
 | Bind ports >1024 | New sockets after privilege drop |
 | Run scheduled tasks | Backup, cleanup, SSL renewal, etc. |
 | Manage database | SQLite in data dir |
 | Manage SSL certs | In `{config_dir}/ssl/` |
 
-**What the `caspbx` user CANNOT do:**
+**What the `{project_name}` user CANNOT do:**
 
 | Restriction | Reason |
 |-------------|--------|
@@ -8552,19 +9077,19 @@ Binary checks:
 
 ```bash
 # Binary sets these during startup as root
-chown -R caspbx:caspbx /etc/casapps/caspbx/
-chown -R caspbx:caspbx /var/lib/casapps/caspbx/
-chown -R caspbx:caspbx /var/cache/casapps/caspbx/
-chown -R caspbx:caspbx /var/log/casapps/caspbx/
+chown -R {internal_name}:{internal_name} /etc/{project_org}/{internal_name}/
+chown -R {internal_name}:{internal_name} /var/lib/{project_org}/{internal_name}/
+chown -R {internal_name}:{internal_name} /var/cache/{project_org}/{internal_name}/
+chown -R {internal_name}:{internal_name} /var/log/{project_org}/{internal_name}/
 
 # Permissions
-chmod 755 /etc/casapps/caspbx/
-chmod 700 /etc/casapps/caspbx/security/
-chmod 700 /etc/casapps/caspbx/ssl/
-chmod 700 /etc/casapps/caspbx/tor/
-chmod 755 /var/lib/casapps/caspbx/
-chmod 755 /var/cache/casapps/caspbx/
-chmod 755 /var/log/casapps/caspbx/
+chmod 755 /etc/{project_org}/{internal_name}/
+chmod 700 /etc/{project_org}/{internal_name}/security/
+chmod 700 /etc/{project_org}/{internal_name}/ssl/
+chmod 700 /etc/{project_org}/{internal_name}/tor/
+chmod 755 /var/lib/{project_org}/{internal_name}/
+chmod 755 /var/cache/{project_org}/{internal_name}/
+chmod 755 /var/log/{project_org}/{internal_name}/
 ```
 
 **User creation:** See PART 24 for platform-specific user creation commands (Linux `useradd`, macOS `dscl`, FreeBSD `pw`).
@@ -8574,7 +9099,7 @@ chmod 755 /var/log/casapps/caspbx/
 | Aspect | System Service | User Service |
 |--------|---------------|--------------|
 | **Installed by** | root/admin | Regular user |
-| **Runs as** | root → drops to `caspbx` | Calling user |
+| **Runs as** | root → drops to `{project_name}` | Calling user |
 | **Ports** | Any | >1024 only |
 | **Paths** | `/etc/`, `/var/` | `~/.config/`, `~/.local/` |
 | **Survives logout** | Yes | Depends on `lingering` |
@@ -8647,7 +9172,7 @@ server:
 
 ### Admin Panel
 
-Port can be changed via `/{admin_path}/server/settings`, but **requires server restart** (with warning shown to user).
+Port can be changed via `/server/{admin_path}/config/settings`, but **requires server restart** (with warning shown to user).
 
 ### Example Structure
 
@@ -8669,10 +9194,15 @@ server:
   admin_path: admin
   # API version prefix (default: v1) - used in /api/{api_version}/ routes
   api_version: v1
+  healthz:
+    root:
+      # Optional root compatibility alias. Canonical route stays /server/healthz.
+      # When true, mount /healthz to the SAME handler as /server/healthz (never redirect).
+      enabled: false
 
   # Branding & SEO - see PART 16 for full details
   branding:
-    title: "caspbx"
+    title: "{project_name}"
     tagline: ""
     description: ""
   seo:
@@ -9322,7 +9852,7 @@ import (
     "runtime"
     "strings"
 
-    "github.com/casapps/caspbx/src/config"
+    "github.com/{project_org}/{internal_name}/src/config"
 )
 
 var (
@@ -9740,12 +10270,12 @@ func ShowProgress(env *DisplayEnv, percent int) {
 
 ```bash
 # Test dumb terminal behavior
-TERM=dumb caspbx --status
-TERM=dumb caspbx-cli list
-TERM=dumb caspbx-agent status
+TERM=dumb {project_name} --status
+TERM=dumb {project_name}-cli list
+TERM=dumb {project_name}-agent status
 
 # Should produce plain text output with no escape codes
-TERM=dumb caspbx --status | cat -v   # No ^[ sequences
+TERM=dumb {project_name} --status | cat -v   # No ^[ sequences
 ```
 
 ### Platform-Specific Display Detection
@@ -9910,7 +10440,7 @@ src/
 
 ```go
 // go.mod
-module casapps/caspbx
+module {project_org}/{internal_name}
 
 go 1.xx  // Use current latest stable version
 
@@ -10036,7 +10566,7 @@ package banner
 
 import (
     "fmt"
-    "casapps/caspbx/common/terminal"
+    "{project_org}/{internal_name}/common/terminal"
 )
 
 type BannerConfig struct {
@@ -10070,15 +10600,15 @@ func PrintStartupBanner(cfg BannerConfig) {
 
 # PART 8: SERVER BINARY CLI
 
-**These are the command-line flags for the SERVER binary (`caspbx`), NOT the client (`caspbx-cli`).**
+**These are the command-line flags for the SERVER binary (`{project_name}`), NOT the client (`{project_name}-cli`).**
 
 ## Binary Types
 
 | Binary | Default Name | Purpose | Key Flags |
 |--------|--------------|---------|-----------|
-| **Server** | `caspbx` | Runs the HTTP server | `--config`, `--data`, `--port`, `--mode` |
-| **Agent** | `caspbx-agent` | Reports to server | `--server`, `--token`, `--config` |
-| **Client** | `caspbx-cli` | User interface to server | `--server`, `--token`, `--output` |
+| **Server** | `{project_name}` | Runs the HTTP server | `--config`, `--data`, `--port`, `--mode` |
+| **Agent** | `{project_name}-agent` | Reports to server | `--server`, `--token`, `--config` |
+| **Client** | `{project_name}-cli` | User interface to server | `--server`, `--token`, `--output` |
 
 **Shared flags (ALL binaries):** `--help`, `--version`, `--shell`, `--debug`, `--color`, `--lang`
 
@@ -10086,18 +10616,18 @@ func PrintStartupBanner(cfg BannerConfig) {
 
 | Binary | Default Name | User-Agent |
 |--------|--------------|------------|
-| Server | `caspbx` | `caspbx/{version}` |
-| Agent | `caspbx-agent` | `caspbx-agent/{version}` |
-| Client | `caspbx-cli` | `caspbx-cli/{version}` |
+| Server | `{project_name}` | `{project_name}/{version}` |
+| Agent | `{project_name}-agent` | `{project_name}-agent/{version}` |
+| Client | `{project_name}-cli` | `{project_name}-cli/{version}` |
 
 **ALL binaries can be renamed by users. Must show ACTUAL binary name in:**
 - `--help` and `--version` output
 - Error messages showing "run X --help"
 - Any user-facing documentation/instructions
 
-**Hardcode `caspbx` for internal identifiers (never changes):**
+**Hardcode `{project_name}` for internal identifiers (never changes):**
 - User-Agent header (identifies binary type to server)
-- Default paths (`/etc/casapps/caspbx/`)
+- Default paths (`/etc/{project_org}/{internal_name}/`)
 - Config keys, database tables, API identifiers
 
 **Get actual binary name:**
@@ -10216,20 +10746,20 @@ output:
 **Testing:**
 ```bash
 # Colors and emojis enabled (default)
-caspbx --status
+{project_name} --status
 
 # Colors and emojis disabled via NO_COLOR
-NO_COLOR=1 caspbx --status
+NO_COLOR=1 {project_name} --status
 
 # Colors forced on (overrides NO_COLOR for colors only)
-NO_COLOR=1 caspbx --status --color=always
+NO_COLOR=1 {project_name} --status --color=always
 
 # Colors forced off (explicit)
-caspbx --status --color=never
+{project_name} --status --color=never
 
 # Verify no escape codes or emojis in output
-NO_COLOR=1 caspbx --status | cat -v   # No ^[ sequences
-NO_COLOR=1 caspbx --status | grep -E '✅|❌|⚠️|🚀'  # Should find nothing
+NO_COLOR=1 {project_name} --status | cat -v   # No ^[ sequences
+NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'  # Should find nothing
 ```
 
 **THESE SERVER COMMANDS CANNOT BE CHANGED. This is the complete command set.**
@@ -10265,11 +10795,11 @@ NO_COLOR=1 caspbx --status | grep -E '✅|❌|⚠️|🚀'  # Should find nothin
 ### Server --help Output
 
 ```bash
-$ caspbx --help
-caspbx {projectversion} - {project description}
+$ {project_name} --help
+{project_name} {projectversion} - {project description}
 
 Usage:
-  caspbx [flags]
+  {project_name} [flags]
 
 Information:
   -h, --help                        Show help (--help for any command shows its help)
@@ -10302,7 +10832,7 @@ Service Management:
       --maintenance CMD             Maintenance operations (--maintenance --help for details)
       --update [CMD]                Check/perform updates (--update --help for details)
 
-Run 'caspbx <command> --help' for detailed help on any command.
+Run '{project_name} <command> --help' for detailed help on any command.
 ```
 
 ## Directory Flags
@@ -10311,12 +10841,12 @@ Run 'caspbx <command> --help' for detailed help on any command.
 
 | Flag | Type | Default (Linux root) | Default (Linux user) |
 |------|------|----------------------|----------------------|
-| `--config` | Directory | `/etc/casapps/caspbx/` | `~/.config/casapps/caspbx/` |
-| `--data` | Directory | `/var/lib/casapps/caspbx/` | `~/.local/share/casapps/caspbx/` |
-| `--cache` | Directory | `/var/cache/casapps/caspbx/` | `~/.cache/casapps/caspbx/` |
-| `--log` | Directory | `/var/log/casapps/caspbx/` | `~/.local/log/casapps/caspbx/` |
-| `--backup` | Directory | `/mnt/Backups/casapps/caspbx/` (if writable) | `~/.local/share/Backups/casapps/caspbx/` |
-| `--pid` | File | `/var/run/casapps/caspbx.pid` | `~/.local/share/casapps/caspbx/caspbx.pid` |
+| `--config` | Directory | `/etc/{project_org}/{internal_name}/` | `~/.config/{project_org}/{internal_name}/` |
+| `--data` | Directory | `/var/lib/{project_org}/{internal_name}/` | `~/.local/share/{project_org}/{internal_name}/` |
+| `--cache` | Directory | `/var/cache/{project_org}/{internal_name}/` | `~/.cache/{project_org}/{internal_name}/` |
+| `--log` | Directory | `/var/log/{project_org}/{internal_name}/` | `~/.local/log/{project_org}/{internal_name}/` |
+| `--backup` | Directory | `/mnt/Backups/{project_org}/{internal_name}/` (if writable) | `~/.local/share/Backups/{project_org}/{internal_name}/` |
+| `--pid` | File | `/var/run/{project_org}/{internal_name}.pid` | `~/.local/share/{project_org}/{internal_name}/{internal_name}.pid` |
 
 **Note:** `--backup` prefers system backup dir if writable, falls back to user dir. See `GetBackupDir()` in PART 5.
 
@@ -10428,7 +10958,7 @@ func isOurProcess(pid int) bool {
         // On macOS/BSD, use ps command
         return isOurProcessDarwin(pid)
     }
-    return strings.Contains(filepath.Base(exePath), "caspbx")
+    return strings.Contains(filepath.Base(exePath), "{project_name}")
 }
 
 // isOurProcessDarwin checks process on macOS/BSD
@@ -10438,7 +10968,7 @@ func isOurProcessDarwin(pid int) bool {
     if err != nil {
         return false
     }
-    return strings.Contains(string(output), "caspbx")
+    return strings.Contains(string(output), "{project_name}")
 }
 
 // --- pid_windows.go ---
@@ -10477,7 +11007,7 @@ func isOurProcess(pid int) bool {
         return false
     }
     exePath := windows.UTF16ToString(buf[:size])
-    return strings.Contains(strings.ToLower(filepath.Base(exePath)), "caspbx")
+    return strings.Contains(strings.ToLower(filepath.Base(exePath)), "{project_name}")
 }
 
 // WritePIDFile writes current process PID to file
@@ -10590,15 +11120,15 @@ PHASE 5: Server startup (actual server start)
 
 8. IF RUNNING AS ROOT - setup system resources BEFORE dropping privileges:
    a. Check/create system user:
-      ├─ User caspbx exists → use it
-      └─ User missing → create caspbx:caspbx (see PART 25)
+      ├─ User {project_name} exists → use it
+      └─ User missing → create {internal_name}:{internal_name} (see PART 25)
    b. Create ALL directories (while still root):
       ├─ {config_dir}/ and subdirs (ssl/, tor/)
       ├─ {data_dir}/ and subdirs (db/, security/, tor/, tor/site/)
       ├─ {cache_dir}/
       ├─ {log_dir}/
       └─ {backup_dir}/
-   c. Set ownership: chown -R caspbx:caspbx on all dirs
+   c. Set ownership: chown -R {internal_name}:{internal_name} on all dirs
    d. Set permissions: 0755 general dirs, 0700 sensitive (security/, ssl/, tor/)
    e. Determine ports (see PART 15 for full port rules):
       ├─ Format 1: --port {port} (single port)
@@ -10608,22 +11138,22 @@ PHASE 5: Server startup (actual server start)
       ├─ Format 2: --port {http},{https} (dual port)
       │   ├─ First port = HTTP
       │   └─ Second port = HTTPS
-      ├─ No --port? → check CASPBX_PORT env var (same format)
+      ├─ No --port? → check {PROJECT_NAME}_PORT env var (same format)
       ├─ No env var? → read from config file (server.port)
       └─ No config? → random port in 64000-64999 range (single, HTTP)
    f. Bind ALL privileged ports (< 1024) NOW while still root:
       ├─ For each port < 1024: create and bind socket, store fd
       ├─ If ANY privileged port fails: exit with error
       └─ Unprivileged ports (>= 1024) bound later in step 18
-   g. DROP PRIVILEGES to caspbx user
+   g. DROP PRIVILEGES to {project_name} user
    h. Verify privilege drop succeeded (getuid() != 0)
 
 9. IF RUNNING AS USER (non-root) - setup user directories:
-   ├─ Create {config_dir} (~/.config/casapps/caspbx/)
-   ├─ Create {data_dir} (~/.local/share/casapps/caspbx/)
-   ├─ Create {cache_dir} (~/.cache/casapps/caspbx/)
-   ├─ Create {log_dir} (~/.local/log/casapps/caspbx/)
-   ├─ Create {backup_dir} (~/.local/share/Backups/casapps/caspbx/)
+   ├─ Create {config_dir} (~/.config/{project_org}/{internal_name}/)
+   ├─ Create {data_dir} (~/.local/share/{project_org}/{internal_name}/)
+   ├─ Create {cache_dir} (~/.cache/{project_org}/{internal_name}/)
+   ├─ Create {log_dir} (~/.local/log/{project_org}/{internal_name}/)
+   ├─ Create {backup_dir} (~/.local/share/Backups/{project_org}/{internal_name}/)
    ├─ Set permissions: 0700 on all dirs (user-only access)
    └─ Note: port must be >1024 (user mode cannot bind privileged ports)
 
@@ -10632,7 +11162,7 @@ PHASE 5: Server startup (actual server start)
     ├─ Set default log level (info)
     └─ Log "Server starting, version X.Y.Z"
 
-11. Check PID file (root: /var/run/casapps/caspbx.pid, user: {data_dir}/caspbx.pid):
+11. Check PID file (root: /var/run/{project_org}/{internal_name}.pid, user: {data_dir}/{internal_name}.pid):
     ├─ PID file exists AND process running → exit 1 "already running"
     ├─ PID file exists AND process dead → remove stale PID, continue
     └─ No PID file → continue
@@ -10643,7 +11173,7 @@ PHASE 5: Server startup (actual server start)
     ├─ Look for {config_dir}/server.yml
     ├─ Determine port (if not already bound in step 8f):
     │   ├─ --port CLI flag → use specified
-    │   ├─ CASPBX_PORT env var → use specified
+    │   ├─ {PROJECT_NAME}_PORT env var → use specified
     │   ├─ Config file server.port → use specified
     │   └─ Default → random 64000-64999
     ├─ If MISSING (first run):
@@ -10655,7 +11185,7 @@ PHASE 5: Server startup (actual server start)
     ├─ If EXISTS:
     │   ├─ Parse YAML configuration
     │   └─ Validate all values (invalid → log WARN, use default)
-    └─ Apply remaining environment variable overrides (CASPBX_*)
+    └─ Apply remaining environment variable overrides ({PROJECT_NAME}_*)
 
 14. Reconfigure logging from config:
     ├─ Set log level from server.logging.level
@@ -10792,7 +11322,7 @@ PHASE 5: Server startup (actual server start)
 | Init systems | Parent PID 1 is: `tini`, `dumb-init`, `s6-svscan`, `runsv`, `runsvdir`, `catatonit` |
 | Kubernetes | `KUBERNETES_SERVICE_HOST` env var set |
 | cgroup | `/proc/1/cgroup` contains `docker`, `kubepods`, `lxc` |
-| Self wrapper | Parent process is `caspbx` (entrypoint wrapper) |
+| Self wrapper | Parent process is `{project_name}` (entrypoint wrapper) |
 
 **Manual Start Priority Order:**
 1. `--daemon` CLI flag (highest)
@@ -10834,7 +11364,7 @@ func isContainer() bool {
     switch parentName {
     case "tini", "dumb-init", "s6-svscan", "runsv", "runsvdir", "catatonit":
         return true
-    case "caspbx":
+    case "{project_name}":
         // Parent is our own binary - likely container entrypoint
         return true
     }
@@ -11081,7 +11611,7 @@ myapp is running (PID 12345)
 **Used for Docker/compose healthcheck:**
 ```yaml
 healthcheck:
-  test: /usr/local/bin/caspbx --status
+  test: /usr/local/bin/{project_name} --status
   interval: 10s
   timeout: 5s
   retries: 3
@@ -11893,7 +12423,7 @@ CREATE TABLE IF NOT EXISTS admins (
     failed_attempts INTEGER NOT NULL DEFAULT 0,
     locked_until INTEGER,                      -- Account lockout timestamp
     -- OIDC/LDAP sync fields (null for local accounts)
-    source      TEXT NOT NULL DEFAULT 'local', -- local, oidc:{provider}, ldap
+    source      TEXT NOT NULL DEFAULT 'local', -- local, oidc:{provider}, ldap:{provider}
     external_id TEXT,                          -- Provider's user ID
     groups      TEXT,                          -- JSON array of group memberships
     last_sync   INTEGER                        -- Last OIDC/LDAP sync timestamp
@@ -11959,6 +12489,11 @@ CREATE TABLE IF NOT EXISTS users (
     last_login  INTEGER,
     failed_attempts INTEGER NOT NULL DEFAULT 0,
     locked_until INTEGER,                      -- Account lockout timestamp
+    -- OIDC/LDAP sync fields (null for local accounts)
+    source      TEXT NOT NULL DEFAULT 'local', -- local, oidc:{provider}, ldap:{provider}
+    external_id TEXT,                          -- Provider's user ID
+    groups      TEXT,                          -- JSON array of cached group memberships
+    last_sync   INTEGER,                       -- Last successful OIDC/LDAP sync timestamp
     metadata    TEXT                           -- JSON for app-specific data
 );
 
@@ -12305,7 +12840,7 @@ func categorizeChanges(changes []string) (hotReload, needsRestart []string) {
 **Admin UI Restart Notification:**
 
 ```go
-// GET /{admin_path}/api/status returns pending restart info
+// GET /server/{admin_path}/api/status returns pending restart info
 func adminStatusHandler(w http.ResponseWriter, r *http.Request) {
     status := map[string]interface{}{
         "running":         true,
@@ -12329,13 +12864,14 @@ func adminStatusHandler(w http.ResponseWriter, r *http.Request) {
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Health Check Endpoint (`/healthz`):**
+**Health Check Endpoint (`/server/healthz`):**
 
-**See PART 13 for full /healthz response format. Handler must return all dynamic data.**
+**See PART 13 for full /server/healthz response format. Handler must return all dynamic data.**
 
 ```go
-// GET /healthz - full health response (see PART 13 for JSON structure)
-// GET /api/{api_version}/healthz - same response, always JSON
+// GET /server/healthz - full health response (see PART 13 for JSON structure)
+// GET /healthz - same handler as /server/healthz when cfg.Server.Healthz.Root.Enabled
+// GET /api/{api_version}/server/healthz - same response, JSON by default
 func healthHandler(w http.ResponseWriter, r *http.Request) {
     // Content negotiation handled by middleware (PART 14)
     // This returns the data; middleware formats as HTML/JSON/text
@@ -12358,7 +12894,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
     respondWithFormat(w, r, response) // PART 14 content negotiation
 }
 
-// buildHealthResponse collects ALL dynamic data for /healthz
+// buildHealthResponse collects ALL dynamic data for /server/healthz
 // This is the COMPLETE global structure - extend with app-specific data
 // ALL fields MUST be public-safe (no secrets, no internal IPs, no paths)
 // Frontend displays everything returned here (see PART 13)
@@ -12470,7 +13006,7 @@ func (m *ConfigManager) ClearPendingRestart() {
 # Kubernetes - check pending_restart for rolling updates
 livenessProbe:
   httpGet:
-    path: /healthz
+    path: /server/healthz
     port: 8080
   # Don't fail on restart_required - service is still live
 
@@ -12512,7 +13048,7 @@ $ kill -TERM $(cat /var/run/myapp.pid)
 | (none) | `DATABASE_DIR` | SQLite database directory (Docker: `/data/db/sqlite`, Native: `{data_dir}/db/`) |
 | (none) | `BACKUP_DIR` | Backup directory (defaults to `{data_dir}/backup/`, changeable) |
 
-**External backup mounts:** In production, `BACKUP_DIR` should typically point to external storage (NAS, separate disk, etc.) rather than staying under `{data_dir}`. Example: `BACKUP_DIR=/mnt/Backups/casapps/caspbx`. The default `{data_dir}/backup/` is for development/testing only.
+**External backup mounts:** In production, `BACKUP_DIR` should typically point to external storage (NAS, separate disk, etc.) rather than staying under `{data_dir}`. Example: `BACKUP_DIR=/mnt/Backups/{project_org}/{internal_name}`. The default `{data_dir}/backup/` is for development/testing only.
 
 **Implementation:**
 
@@ -12597,10 +13133,10 @@ func isWritable(path string) bool {
 }
 
 // systemBackupDir returns the system-level backup directory
-// Linux: /mnt/Backups/casapps/caspbx
-// macOS: /Library/Backups/casapps/caspbx
-// BSD:   /var/backups/casapps/caspbx
-// Windows: %ProgramData%\Backups\casapps\caspbx
+// Linux: /mnt/Backups/{project_org}/{internal_name}
+// macOS: /Library/Backups/{project_org}/{internal_name}
+// BSD:   /var/backups/{project_org}/{internal_name}
+// Windows: %ProgramData%\Backups\{project_org}\{internal_name}
 func systemBackupDir() string {
     switch runtime.GOOS {
     case "darwin":
@@ -12615,9 +13151,9 @@ func systemBackupDir() string {
 }
 
 // userBackupDir returns the user-level backup directory
-// Linux/BSD: ~/.local/share/Backups/casapps/caspbx
-// macOS: ~/Library/Backups/casapps/caspbx
-// Windows: %LocalAppData%\Backups\casapps\caspbx
+// Linux/BSD: ~/.local/share/Backups/{project_org}/{internal_name}
+// macOS: ~/Library/Backups/{project_org}/{internal_name}
+// Windows: %LocalAppData%\Backups\{project_org}\{internal_name}
 func userBackupDir() string {
     home, _ := os.UserHomeDir()
     switch runtime.GOOS {
@@ -12635,7 +13171,7 @@ func userBackupDir() string {
 
 ```bash
 # Configurable paths - organized by component
-# APP_NAME is set to caspbx
+# APP_NAME is set to {project_name}
 export CONFIG_DIR="/config/${APP_NAME}"
 export DATA_DIR="/data/${APP_NAME}"
 export CACHE_DIR="/data/${APP_NAME}/cache"
@@ -12644,8 +13180,8 @@ export DATABASE_DIR="/data/db"
 export BACKUP_DIR="/data/backups/${APP_NAME}"
 
 # Tor directories under binary's dirs (binary owns Tor)
-# ${CONFIG_DIR}/tor/ = /config/caspbx/tor/
-# ${DATA_DIR}/tor/   = /data/caspbx/tor/
+# ${CONFIG_DIR}/tor/ = /config/{project_name}/tor/
+# ${DATA_DIR}/tor/   = /data/{project_name}/tor/
 ```
 
 ### Docker Compose Mapping
@@ -12654,14 +13190,14 @@ export BACKUP_DIR="/data/backups/${APP_NAME}"
 
 ```yaml
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
-    container_name: caspbx-app
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
+    container_name: {project_name}-app
     command:
       - --config=/config
       - --data=/data
       - --log=/logs
-      - --pid=/run/caspbx.pid
+      - --pid=/run/{internal_name}.pid
       - --port=8080
     volumes:
       - config:/config:ro          # Config (read-only)
@@ -12676,16 +13212,16 @@ services:
 
 ```yaml
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
-    container_name: caspbx-app
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
+    container_name: {project_name}-app
     volumes:
-      - caspbx-data:/data
+      - {project_name}-data:/data
     ports:
       - "8080:8080"
 
 volumes:
-  caspbx-data:
+  {project_name}-data:
 ```
 
 ### Commands Anyone Can Run (No Privileges)
@@ -12723,9 +13259,9 @@ volumes:
 | WRONG | RIGHT |
 |-------|-------|
 | `GET /api/{api_version}/resource/random` | `https://api.example.com/api/{api_version}/resource/random` |
-| `POST /api/{api_version}/{admin_path}/server/settings` | `https://api.example.com/api/{api_version}/{admin_path}/server/settings` |
+| `POST /api/{api_version}/server/{admin_path}/config/settings` | `https://api.example.com/api/{api_version}/server/{admin_path}/config/settings` |
 | `http://localhost:8080/api` | `http://192.168.1.100:64580/api` |
-| `http://0.0.0.0:80/healthz` | `https://myserver.example.com/healthz` |
+| `http://0.0.0.0:80/server/healthz` | `https://myserver.example.com/server/healthz` |
 
 ### URL Variables
 
@@ -12771,7 +13307,7 @@ All templates, Swagger/OpenAPI, GraphQL, email links, etc. MUST use these resolv
 | 6 | **Public IPv4** | First public IPv4 (excludes 10/8, 172.16/12, 192.168/16) |
 | 7 | **localhost** | Last resort |
 
-**Public IP Detection (Go 1.17+):**
+**Public IP Detection (latest stable Go):**
 - Uses `ip.IsGlobalUnicast() && !ip.IsPrivate()`
 - IPv4 excludes the same RFC 1918 / loopback / link-local set documented as "always trusted" in PART 12 → "Trusted Proxies" (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16). Single canonical list — see PART 12 for IPv6 ranges and any future additions.
 - IPv6 excludes: `::1`, `fe80::/10` (link-local), `fc00::/7` (unique local)
@@ -12945,10 +13481,10 @@ func GetWildcardDomain() string
 |-----------|-----------------|
 | HTML templates | `BuildURL(r, "/path")` |
 | Swagger/OpenAPI | `servers[0].url` = `BuildURL(r, "")` |
-| GraphQL | `BuildURL(r, "/api/{api_version}/graphql")` (or `/api/graphql` alias for the latest version) |
+| GraphQL | `BuildURL(r, "/api/{api_version}/server/graphql")` (or `/api/graphql` alias for the latest version) |
 | Email links | `BuildURL(r, "/verify")` |
 | CORS origins | Auto-include `GetWildcardDomain()` if detected |
-| OAuth callbacks | `BuildURL(r, "/auth/callback")` |
+| OAuth callbacks | `BuildURL(r, "/server/auth/callback")` |
 
 ### FQDN Validation Rules
 
@@ -12993,7 +13529,7 @@ This properly handles complex suffixes like `.co.uk`, `.com.au`, `.org.uk`, etc.
 - `.localhost`, `.test`, `.example`, `.invalid` (RFC 6761)
 - `.local`, `.lan`, `.internal`, `.home`, `.localdomain`
 - `.home.arpa`, `.intranet`, `.corp`, `.private`
-- `caspbx` - dynamic (e.g., `app.jokes`, `dev.quotes`, `my.api`)
+- `{project_name}` - dynamic (e.g., `app.jokes`, `dev.quotes`, `my.api`)
 
 **Overlay Network TLDs (App-Managed, not set in DOMAIN):**
 - `.onion` - Tor hidden services (RFC 7686) - app generates/manages
@@ -13049,7 +13585,7 @@ func IsValidHost(host string, devMode bool, projectName string) bool {
         return true
     }
 
-    // Check dynamic project-specific TLD (e.g., app.jokes, dev.quotes, quotes, jokes, caspbx)
+    // Check dynamic project-specific TLD (e.g., app.jokes, dev.quotes, quotes, jokes, {project_name})
     if projectName != "" && strings.HasSuffix(lower, "."+strings.ToLower(projectName)) {
         // Project TLDs only valid in dev mode
         return devMode
@@ -13815,7 +14351,7 @@ if err != nil && !isColumnExistsError(err) {
 | Term | What it is | Where it runs | Auth |
 |------|-----------|----------------|------|
 | **Cluster node** | Another instance of THIS server binary, sharing the same DB and cache, behind the same admin namespace | Anywhere reachable from the primary node | Internal — joins via the cluster join token; subsequent traffic uses the shared DB |
-| **Agent** (PART 33) | A separate, purpose-built `caspbx-agent` binary on a remote machine reporting INTO the server | Customer / operator machines (web hosts, build runners, monitored machines) | Bearer token (`adm_agt_` / `usr_agt_` / `org_agt_`) — see PART 14 → Token Types |
+| **Agent** (PART 33) | A separate, purpose-built `{project_name}-agent` binary on a remote machine reporting INTO the server | Customer / operator machines (web hosts, build runners, monitored machines) | Bearer token (`adm_agt_` / `usr_agt_` / `org_agt_`) — see PART 14 → Token Types |
 
 Agents are NEVER cluster nodes; they don't share the DB; they don't get `app_secrets` distributed to them. Cluster nodes are NEVER agents; they don't register via `/agents/register`.
 
@@ -13858,7 +14394,7 @@ If now - last_seen > 5 minutes:
          │
          ▼
 Admin manually removes dead nodes via:
-   /{admin_path}/server/cluster → Remove Node
+   /server/{admin_path}/config/cluster → Remove Node
 ```
 
 **Heartbeat Payload (every 30s, written to `nodes` table):**
@@ -13895,13 +14431,13 @@ Admin manually removes dead nodes via:
 
 ### Removed-Node Local Cleanup
 
-**When a node is manually removed via `/{admin_path}/server/cluster → Remove Node`, the database record is deleted, but the node's local on-disk state may still contain valid copies of `app_secrets` (it had them while it was in the cluster). The removal flow MUST handle both sides:**
+**When a node is manually removed via `/server/{admin_path}/config/cluster → Remove Node`, the database record is deleted, but the node's local on-disk state may still contain valid copies of `app_secrets` (it had them while it was in the cluster). The removal flow MUST handle both sides:**
 
 | Side | Action |
 |------|--------|
 | **Server-side** (from the removing node) | Delete the row from `nodes` table. Mark `app_secrets` versions valid for that node as `revoked_for_node = node_id` so audit can see the removal happened mid-rotation if applicable. Emit `cluster.node_removed` audit event. |
 | **Removed-node-side** (when the removed node next attempts to heartbeat) | Heartbeat returns `403 NODE_REMOVED`. The binary on the removed node MUST: (1) wipe `{config_dir}/security/pgp.priv.asc.enc` if present (PGP keys are cluster-shared and the removed node has lost permission to participate); (2) wipe its `app_secrets` cache; (3) leave `server.yml` minus the cluster section; (4) log `cluster.removed_self_cleanup` to local `audit.log`; (5) refuse to serve requests until re-joined. The binary does NOT delete logs, data files, or user content — those stay on the removed host for forensic / audit purposes. |
-| **If the removed node is offline at removal time** | The cleanup happens whenever the removed node next attempts to communicate. Until then, it's running with stale secrets — but per the secret-version-mismatch flow above, its requests would already fail because `installation_secret` may have rotated. Operators removing a node SHOULD power down or `systemctl stop caspbx` first, then remove. The admin panel surfaces this guidance. |
+| **If the removed node is offline at removal time** | The cleanup happens whenever the removed node next attempts to communicate. Until then, it's running with stale secrets — but per the secret-version-mismatch flow above, its requests would already fail because `installation_secret` may have rotated. Operators removing a node SHOULD power down or `systemctl stop {internal_name}` first, then remove. The admin panel surfaces this guidance. |
 
 **Caveat:** removed-node cleanup is best-effort. A truly compromised host that's been removed cannot be trusted to wipe its own secrets — assume the secrets it had ARE in attacker hands. Always rotate `installation_secret`, `cookie_signing_key`, `csrf_token_secret`, `server.security.encryption_key`, and the project PGP keypair after removing a compromised node. The admin panel offers a "Rotate everything" button on the Remove Node confirmation dialog.
 
@@ -14268,21 +14804,21 @@ func isSerializationError(err error) bool {
 
 | Item | Where it appears | Why public-safe |
 |------|------------------|-----------------|
-| `app_name`, `project_name` | `/healthz`, banners, headers | Already in URL / branding |
-| `version` (semver) | `/healthz`, `Server:` header, `--version` | Required so security researchers can correlate reports against releases |
-| `commit_hash` | `/healthz`, `--version` | Public — embedded at build, anyone can extract from binary |
-| `build_date` | `/healthz`, `--version` | Same as above |
-| `go_version` | `/healthz` (under `runtime`) | Build metadata, not a vulnerability vector on its own |
-| `uptime` (seconds or human) | `/healthz` | Operational diagnostic |
-| `mode` (`production` / `development`) | `/healthz` | Operational diagnostic; debug is gated separately |
-| `db_type` (`sqlite` / `postgres` / `valkey` / etc.) | `/healthz` | Just the engine family — no host, no creds |
-| `db_locality` (`local` / `remote`) | `/healthz` | Fuzzy — no host name or IP |
-| `cluster_size`, `is_leader`, `is_follower` | `/healthz` | Cluster state, no addresses |
-| `request_count_24h`, `active_connections`, `total_connections` | `/healthz` (under `metrics`) | Operational, aggregate |
-| `unique_visitors_24h`, `peak_concurrent` | `/healthz` (aggregate only) | Bragging rights / monitoring; no per-IP detail |
+| `app_name`, `project_name` | `/server/healthz`, banners, headers | Already in URL / branding |
+| `version` (semver) | `/server/healthz`, `Server:` header, `--version` | Required so security researchers can correlate reports against releases |
+| `commit_hash` | `/server/healthz`, `--version` | Public — embedded at build, anyone can extract from binary |
+| `build_date` | `/server/healthz`, `--version` | Same as above |
+| `go_version` | `/server/healthz` (under `runtime`) | Build metadata, not a vulnerability vector on its own |
+| `uptime` (seconds or human) | `/server/healthz` | Operational diagnostic |
+| `mode` (`production` / `development`) | `/server/healthz` | Operational diagnostic; debug is gated separately |
+| `db_type` (`sqlite` / `postgres` / `valkey` / etc.) | `/server/healthz` | Just the engine family — no host, no creds |
+| `db_locality` (`local` / `remote`) | `/server/healthz` | Fuzzy — no host name or IP |
+| `cluster_size`, `is_primary`, `is_secondary` | `/server/healthz` | Cluster state, no addresses |
+| `request_count_24h`, `active_connections`, `total_connections` | `/server/healthz` (under `metrics`) | Operational, aggregate |
+| `unique_visitors_24h`, `peak_concurrent` | `/server/healthz` (aggregate only) | Bragging rights / monitoring; no per-IP detail |
 | Public domain(s) the app serves (`{fqdn}`, learned reverse-proxy hosts) | `/api/autodiscover`, banners | Already public — that's how visitors got here |
 | Tor `.onion` / I2P address (if Tor/I2P enabled and `expose: true`) | `/api/autodiscover` | Operator opt-in; advertised on purpose |
-| OpenAPI spec, GraphQL schema | `/api/{api_version}/swagger`, `/api/swagger`, `/server/docs/*` | API surface is intentionally public |
+| OpenAPI spec, GraphQL schema | `/api/{api_version}/server/swagger`, `/api/swagger`, `/server/docs/*` | API surface is intentionally public |
 | Public OG / social metadata | HTML `<meta>` | Required for sharing / SEO |
 
 **Rule:** if a researcher would need it to file a useful CVE report, it should be in Tier 2. The version, commit, and mode triple is the minimum set.
@@ -14364,6 +14900,61 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | 5. Strip dev-only fields | In production mode, drop fields tagged `dev_only:"true"` (e.g., `_debug`, `_internal_id`). Dev mode keeps them for troubleshooting. |
 | 6. Constant-time finalize | For auth-sensitive paths (login, password reset, token validation), pad response time to a fixed minimum (e.g., 100ms) so success/fail timing doesn't differ. |
 
+### Untrusted File / Rich Content Handling
+
+**User-controlled content (pastes, gists, repo files, markdown docs, uploaded text, uploaded HTML/SVG/XML) MUST be treated as data, NEVER as trusted browser content.**
+
+| Content class | HTML/UI rendering rule | Raw/download rule | Notes |
+|---------------|------------------------|-------------------|-------|
+| Plain text / source code / config files | Render as escaped text inside `<pre><code>` or equivalent. Syntax highlighting may add server-generated wrapper spans/classes only AFTER escaping the source. | `text/plain; charset=utf-8` is the safe default for raw views. | Never inject file bytes into templates as trusted HTML. |
+| Markdown | Store the original markdown. HTML preview MUST disable raw HTML passthrough, then sanitize the rendered output through an allow-list policy. | Raw markdown download remains plain text. | Keep fenced code blocks, tables, lists, and links working. External links get `rel="noopener noreferrer nofollow ugc"`. |
+| User-supplied HTML | Do NOT render inline by default. Show escaped source or a sanitized preview only for explicitly approved admin-controlled customization fields. | Force `Content-Disposition: attachment` unless the content was sanitized for a very narrow allow-list use case. | User HTML is executable content in a browser origin. Treat it as dangerous. |
+| SVG / XML / other browser-active text | Never inline untrusted SVG/XML in templates, `<img src="data:...">`, or same-origin previews. | Force attachment or convert to a safe raster/text representation before display. | SVG can execute scripts, external loads, and event handlers. |
+| Binary/file downloads | Serve with exact `Content-Type`, `X-Content-Type-Options: nosniff`, and explicit allow-listing. | For user-controlled active MIME types (`text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`), force `Content-Disposition: attachment`. | Browsers must not be allowed to "helpfully" execute uploaded content. |
+
+**Non-negotiable rules:**
+1. **NEVER** cast user-controlled file content to `template.HTML`.
+2. Repository/paste/file viewers MUST render content as escaped text or sanitized markdown — never as live HTML from the stored blob.
+3. Markdown helpers such as `markdownToHTML` MUST disable raw HTML input and MUST sanitize the final HTML before returning `template.HTML`.
+4. If a feature needs previews of risky content, generate a separate safe preview representation; keep the original blob isolated for download only.
+
+### Archive Extraction Safety
+
+**Only define/apply this section when the app accepts archives or imports repo/source bundles.**
+
+| Rule | Requirement |
+|------|-------------|
+| Path confinement | Reject absolute paths, `..`, empty names, drive-letter paths, and any extracted path that escapes the target directory |
+| Symlinks / special files | Reject symlinks, hard links, device files, named pipes, sockets, and setuid/setgid bits |
+| Size limits | Enforce max archive size, max total uncompressed size, max file count, and max single-file size |
+| Compression bombs | Stop extraction when compression ratio or expanded size exceeds configured thresholds |
+| Permissions | Normalize extracted file modes to safe defaults; never preserve executable bits unless the feature explicitly needs them |
+| Overwrite policy | Do not overwrite existing files outside an explicit replace flow |
+
+**Default posture:** if the project does not explicitly need archive upload/import/extract, do NOT implement it.
+
+### Private File Delivery
+
+**Only define/apply this section when the app serves private or user-owned files/blobs.**
+
+| Concern | Rule |
+|---------|------|
+| Auth | Private files use normal authz checks on every request; never rely on obscurity-only URLs |
+| Cache | Private responses use `Cache-Control: private, no-store` |
+| Type safety | Always set exact `Content-Type` + `X-Content-Type-Options: nosniff` |
+| Active content | User-controlled active types (`text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`) MUST be served as attachment |
+| Content-Disposition | Default inline only for safe renderable types; everything else defaults to attachment |
+| Range requests | Allowed for large safe downloads, but only after authz; disabled if the feature cannot enforce authz/rate limiting correctly |
+| URLs | Signed/expiring download URLs are OPTIONAL per app; if used, they complement auth, not replace content-type/disposition rules |
+
+### User Content Processing
+
+**User-supplied content MUST NEVER be executed on the server.**
+
+- Syntax highlighting, previews, diffing, indexing, and metadata extraction MUST use in-process libraries or isolated subprocesses with fixed inputs
+- NEVER shell out with raw user content, filenames, refs, or repo metadata
+- NEVER run hooks, build steps, package managers, interpreters, or git checkout logic on untrusted content unless the project explicitly defines a sandboxed execution feature
+
 ### Operator UX — Security Without a Degree
 
 **Security is hard for users and operators too. The application MUST be secure by default with zero configuration. Operators should never need to read OWASP top-10 to ship a safe deployment.**
@@ -14380,9 +14971,11 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | `--debug` / `DEBUG=true` requires explicit opt-in | Debug endpoints disabled in production by default (PART 6) |
 | Errors return canonical generic messages | Stack traces only in `debug.log`, never in HTTP response (PART 5) |
 | Secret-in-config detection on startup | Warning logged if config contains hardcoded `password=`, `token=`, `secret=` — operator nudged toward env vars / vault |
-| `/healthz` returns operational status + Tier-2 public-safe info | Includes `version`, `commit_hash`, `build_date`, `uptime`, `db_type`, aggregate metrics. Excludes Tier-1 secrets (DSN, internal IPs, credentials). Tier-3 detail (deps versions, internal hosts) requires `--debug`/`DEBUG=true`. See "What Safe for Anyone to See Means" above. |
+| `/server/healthz` returns operational status + Tier-2 public-safe info | Includes `version`, `commit_hash`, `build_date`, `uptime`, `db_type`, aggregate metrics. Excludes Tier-1 secrets (DSN, internal IPs, credentials). Tier-3 detail (deps versions, internal hosts) requires `--debug`/`DEBUG=true`. See "What Safe for Anyone to See Means" above. |
 
 **The contract:** an operator who runs the binary with the binary's defaults, sets a domain, and points DNS at it gets a deployment that passes a baseline security audit. No knobs to flip, no config to write. Tightening (nonces, stricter CORS, `csp.mode: enforce`, etc.) is opt-in for operators who want it.
+
+**Interpretation rule:** "easy to use" means the safe deployment is the default deployment. AI must reduce operator burden by making secure configuration automatic and understandable, not by removing protections.
 
 ## Cryptographic Keys
 
@@ -14398,7 +14991,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | Generated | First start, before the setup token is shown. Stored in `server.db` row `app_secrets.installation_secret`, base64-encoded. |
 | Scope | Cluster-wide. The first node generates it; subsequent nodes joining the cluster receive it via the secure cluster join protocol (PART 34 → "Join Cluster Flow (Technical)" — the join token is HMAC-derived and the `installation_secret` is delivered as part of the same handshake payload). NEVER appears in a request, response, log, or admin UI. |
 | Used by | `{security_id}` HMAC (PART 11 → "Security Reports"); PGP private-key KDF (PART 11 → "GPG Keypair Management"); future derived material (cluster-internal request signing, cookie signing salts). |
-| Rotation | Manual via admin panel (`/{admin_path}/server/security/keypair` → "Rotate Installation Secret"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt admin password, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
+| Rotation | Manual via admin panel (`/server/{admin_path}/config/security/keypair` → "Rotate Installation Secret"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt admin password, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
 | Backup | Always — see PART 22 → "Backup Contents". Required for any restore: without it, the PGP private key in the backup is undecryptable. |
 | Loss = catastrophic | Lost = cannot decrypt PGP private key (and therefore cannot decrypt in-flight encrypted security reports); cannot validate `{security_id}` URLs on existing security.txt copies until the file regenerates. Recovery requires admin to: regenerate keypair, regenerate `installation_secret`, accept that all in-flight encrypted reports are unreadable. |
 
@@ -14853,7 +15446,7 @@ adm_ghi789...  "monitoring"   read       1 year
 
 | Prefix | Scope | Route | Description |
 |--------|-------|-------|-------------|
-| `adm_agt_` | Admin | `/api/{api_version}/{admin_path}/server/agents/*` | Server infrastructure agents |
+| `adm_agt_` | Admin | `/api/{api_version}/server/{admin_path}/config/agents/*` | Server infrastructure agents |
 | `usr_agt_` | User | `/api/{api_version}/users/agents/*` | User's personal agents (SaaS) |
 | `org_agt_` | Org | `/api/{api_version}/orgs/{slug}/agents/*` | Organization agents |
 
@@ -14975,11 +15568,11 @@ func validateAgentToken(token string, scope TokenScope) (*TokenInfo, error) {
 
 | Token Type | Allowed Routes | Description |
 |------------|----------------|-------------|
-| `adm_` | `/api/{api_version}/{admin_path}/*` | Server admin panel |
-| `adm_` | `/api/{api_version}/{admin_path}/server/*` | Server settings (within admin) |
+| `adm_` | `/api/{api_version}/server/{admin_path}/*` | Server admin panel |
+| `adm_` | `/api/{api_version}/server/{admin_path}/config/*` | Server settings (within admin) |
 | `usr_` | `/api/{api_version}/users/*`, `/api/{api_version}/orgs/{allowed}/*` | User + orgs they belong to |
 | `org_` | `/api/{api_version}/orgs/{specific}/*` | Single org only |
-| `adm_agt_` | `/api/{api_version}/{admin_path}/server/agents/*` | Admin infrastructure agent |
+| `adm_agt_` | `/api/{api_version}/server/{admin_path}/config/agents/*` | Admin infrastructure agent |
 | `usr_agt_` | `/api/{api_version}/users/agents/*` | User's personal agent |
 | `org_agt_` | `/api/{api_version}/orgs/{slug}/agents/*` | Organization agent |
 | (no token) | `/api/{api_version}/`, `/api/{api_version}/server/*`, `/api/{api_version}/{resource}/*` | Public routes (no auth) |
@@ -14993,12 +15586,12 @@ const (
     TargetUnknown       TargetType = iota // Unknown/invalid target
     TargetPublic                          // Public routes (/, /api/{api_version}/, project-specific like /jokes, /weather, /ip)
     TargetServerPages                     // Server pages - about, help, contact, privacy (/server/*, /api/{api_version}/server/*)
-    TargetAuth                            // Auth flows (/auth/*, /api/{api_version}/auth/*)
+    TargetAuth                            // Auth flows (/server/auth/*, /api/{api_version}/server/auth/*)
     TargetCurrentUser                     // Current user from token (/users/*, /api/{api_version}/users/*)
     TargetUser                            // Specific user (/users/{username}/*, /api/{api_version}/users/{username}/*)
     TargetOrg                             // Organization (/orgs/{slug}/*, /api/{api_version}/orgs/{slug}/*)
-    TargetAdmin                           // Server admin panel (/{admin_path}/*, /api/{api_version}/{admin_path}/*)
-    TargetAdminServer                     // Server settings within admin (/{admin_path}/server/*, /api/{api_version}/{admin_path}/server/*)
+    TargetAdmin                           // Server admin panel (/server/{admin_path}/*, /api/{api_version}/server/{admin_path}/*)
+    TargetAdminServer                     // Server settings within admin (/server/{admin_path}/config/*, /api/{api_version}/server/{admin_path}/config/*)
 )
 ```
 
@@ -15038,11 +15631,11 @@ func ContextMiddleware(next http.Handler) http.Handler {
 func extractContextFromPath(path string) (*Context, error) {
     // /api/{api_version}/ → Public (project root)
     // /api/{api_version}/server/* → Server Pages (about, help, contact, privacy)
-    // /api/{api_version}/auth/* → Auth flows
+    // /api/{api_version}/server/auth/* → Auth flows
     // /api/{api_version}/users/* → User context (current user or {username})
     // /api/{api_version}/orgs/{slug}/* → Org context
-    // /api/{api_version}/{admin_path}/* → Server Admin
-    // /api/{api_version}/{admin_path}/server/* → Server Settings (within admin)
+    // /api/{api_version}/server/{admin_path}/* → Server Admin
+    // /api/{api_version}/server/{admin_path}/config/* → Server Settings (within admin)
     // /api/{api_version}/{resource}/* → Public routes (project-specific: jokes, weather, ip, etc.)
 
     apiBase := APIBasePath() + "/" // e.g., "/api/{api_version}/"
@@ -15058,7 +15651,7 @@ func extractContextFromPath(path string) (*Context, error) {
         // /api/{api_version}/server/* - public server pages (about, help, contact, privacy)
         return &Context{Type: TargetServerPages}, nil
     case "auth":
-        // /api/{api_version}/auth/* - authentication flows (public)
+        // /api/{api_version}/server/auth/* - authentication flows (public)
         return &Context{Type: TargetAuth}, nil
     case "users":
         if len(parts) > 1 && parts[1] != "" {
@@ -15076,10 +15669,10 @@ func extractContextFromPath(path string) (*Context, error) {
     case cfg.AdminPath: // Configurable admin path
         // Check for server settings within admin
         if len(parts) > 1 && parts[1] == "server" {
-            // /api/{api_version}/{admin_path}/server/* - server settings
+            // /api/{api_version}/server/{admin_path}/config/* - server settings
             return &Context{Type: TargetAdminServer}, nil
         }
-        // /api/{api_version}/{admin_path}/* - admin panel
+        // /api/{api_version}/server/{admin_path}/* - admin panel
         return &Context{Type: TargetAdmin}, nil
     default:
         // Project-specific public routes (e.g., /api/{api_version}/jokes, /weather, /ip)
@@ -15119,19 +15712,26 @@ func extractContextFromPath(path string) (*Context, error) {
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/auth/login` | GET | Login form (handles both admin and user) |
-| `/auth/login` | POST | Process login, redirect based on account type |
-| `/auth/logout` | GET/POST | End session |
-| `/auth/password/reset` | GET/POST | Password reset (if SMTP) |
-| `/auth/invite/server/{code}` | GET | Admin invite acceptance |
+| `/server/auth/login` | GET | Login form (handles both admin and user) |
+| `/server/auth/login` | POST | Process login, redirect based on account type |
+| `/server/auth/logout` | GET/POST | End session |
+| `/server/auth/password/reset` | GET/POST | Password reset (if SMTP) |
+| `/server/auth/invite/server/{code}` | GET | Admin invite acceptance |
+| `/server/auth/oidc/{provider}` | GET | Start OIDC login for user/admin auth |
+| `/server/auth/oidc/{provider}/callback` | GET | Complete OIDC browser login and apply user/admin mapping rules |
+| `/server/auth/ldap` | GET | LDAP provider chooser when one or more LDAP providers are enabled |
+| `/server/auth/ldap/{provider}` | GET/POST | LDAP login flow for the selected LDAP provider |
+| `/server/auth/external/username` | GET/POST | First-login username confirmation/selection step after successful OIDC/LDAP auth for new user/admin accounts |
 
 **Additional routes if multi-user (PART 34):**
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/auth/register` | GET/POST | User registration |
-| `/auth/verify/{code}` | GET | Email verification |
-| `/auth/invite/user/{code}` | GET | User invite acceptance |
+| `/server/auth/register` | GET/POST | User registration |
+| `/server/auth/verify/{code}` | GET | Email verification |
+| `/server/auth/invite/user/{code}` | GET | User invite acceptance |
+
+**Routing rule:** external identity login for both regular users and Server Admins lives under `/server/auth/*` in the browser and `/api/{api_version}/server/auth/*` in the API. Do NOT add parallel auth routes outside those scopes.
 
 ### Scoped Login Redirect
 
@@ -15139,13 +15739,13 @@ func extractContextFromPath(path string) (*Context, error) {
 
 | Account Type | Stored In | After Login Redirect |
 |--------------|-----------|---------------------|
-| **Server Admin** | `admins` table | `/{admin_path}` (default: `/admin`) |
+| **Server Admin** | `admins` table | `/server/{admin_path}` (default: `/server/admin`) |
 | **Regular User** | `users` table | `/users` or `?redirect=` param |
 
 **Login Flow:**
 
 ```
-User submits /auth/login form
+User submits /server/auth/login form
          ↓
 Check credentials against `admins` table
          ↓
@@ -15158,7 +15758,7 @@ Set admin_session    Check `users` table (if multi-user)
     │                    │
     ↓               ┌─── Match found? ───┐
 Redirect to         │                    │
-/{admin_path}      YES                   NO
+/server/{admin_path}      YES                   NO
                     │                    │
                     ↓                    ↓
                Set user_session    Return error:
@@ -15200,14 +15800,55 @@ Redirect to         │                    │
 | Path | Purpose |
 |------|---------|
 | `/.well-known/acme-challenge/` | Let's Encrypt HTTP-01 challenge |
-| `/.well-known/change-password` | Password change URL (redirects to `/users/security/password` if logged in, `/auth/password/forgot` if not) |
+| `/.well-known/change-password` | Password change URL (redirects to `/users/security/password` if logged in, `/server/auth/password/forgot` if not) |
+
+### Well-Known Namespace Contract
+
+**`/.well-known/**` is a root-owned protocol/discovery namespace. It is NOT a general static-file bucket.**
+
+- `/.well-known/**` is reserved to the server and can NEVER be claimed by users, orgs, vanity routes, or admin path settings
+- Well-known endpoints live only at the root `/.well-known/...` namespace, never under `/server/*` or `/api/*`
+- Only documented, allowlisted well-known entries may be served; unsupported entries MUST return `404 Not Found`
+- `GET` and `HEAD` are the only valid methods for `/.well-known/**`; other methods MUST return `405 Method Not Allowed`
+- No auth, no CSRF token, and no session requirement may be needed to read any `/.well-known/**` resource
+- `/.well-known/` itself MUST NOT list a directory index, file browser, or generated listing
+- The namespace MUST NOT expose user-uploaded or user-controlled files directly
+- The namespace is for public-safe protocol metadata only; it MUST NOT expose secrets, internal config, admin-only state, or anything that is unsafe for anonymous users
+- Canonical well-known endpoints MUST serve the exact path required by the standard/consumer; do NOT move them under another route and redirect unless the specific standard explicitly requires a redirect behavior
+- `/.well-known/security.txt` is canonical; `/security.txt` is NOT required and SHOULD return `404` unless a project-specific requirement in `IDEA.md` explicitly says otherwise
+
+### Well-Known Support Matrix
+
+| Path | Default | Required When | Source | Content-Type | Behavior |
+|------|---------|---------------|--------|--------------|----------|
+| `/.well-known/security.txt` | Enabled | All projects | Generated from config (or operator override for the same path) | `text/plain; charset=utf-8` | RFC 9116 security contact file |
+| `/.well-known/pgp-key.asc` | Feature-gated | Project security-report PGP keypair exists | Generated from stored public key | `application/pgp-keys` or `text/plain; charset=utf-8` | Public key download for secure report submission |
+| `/.well-known/acme-challenge/{token}` | Feature-gated | Let's Encrypt `http-01` is active | Dynamic handler only | `text/plain; charset=utf-8` | ACME challenge response; no auth, no HTML |
+| `/.well-known/change-password` | Enabled | Auth routes exist | Dynamic handler | Redirect response with no-store headers | If logged in, send user to `/users/security/password`; otherwise send to `/server/auth/password/forgot` |
+| `/.well-known/webfinger` | Disabled | Project publishes `acct:`-style identities or federation in `IDEA.md` | Dynamic handler | `application/jrd+json` | Resolve account/resource discovery; otherwise 404 |
+| `/.well-known/openid-configuration` | Disabled | Project itself is an OIDC provider in `IDEA.md` | Dynamic handler | `application/json` | Provider metadata; MUST stay disabled for OIDC client-only apps |
+| `/.well-known/assetlinks.json` | Disabled | Android App Links / native credential association is enabled | Config or file-backed | `application/json` | Android digital asset links |
+| `/.well-known/apple-app-site-association` | Disabled | Apple Universal Links / WebCredentials / App Clips are enabled | Config or file-backed | `application/json` | Apple app/site association file; no `.json` suffix |
+| `/.well-known/mta-sts.txt` | Disabled | Deployment explicitly owns inbound mail policy for the served host | Config or file-backed | `text/plain; charset=utf-8` | MTA-STS policy; otherwise 404 |
+
+**Optional-entry rule:** optional well-known endpoints MUST be enabled only when the matching product feature, platform integration, or mail/domain ownership is explicitly defined in `IDEA.md` or project config. Do NOT invent or auto-enable them.
 
 ### Well-Known Directory Support
 
 Files can be served from:
-1. Files in `{data_dir}/web/.well-known/` (checked first)
-2. Embedded files in binary
-3. Dynamically generated (e.g., ACME challenges, config-based security.txt)
+1. Reserved dynamic handlers for protocol-owned entries (for example `acme-challenge`, `change-password`, or provider/discovery handlers when enabled)
+2. Files in `{data_dir}/web/.well-known/` for file-backed allowlisted entries only
+3. Embedded files in binary for file-backed allowlisted entries only
+4. Dynamically generated config-backed content (for example `security.txt`, `pgp-key.asc`, or generated JSON discovery files)
+
+**Serving-order rule:** a file in `{data_dir}/web/.well-known/` may override an embedded default for the SAME allowlisted entry, but it MUST NOT override protocol-owned dynamic handlers such as `/.well-known/acme-challenge/{token}` or `/.well-known/change-password`.
+
+### Adding New Well-Known Entries
+
+- Only add a new `/.well-known/...` entry when a real protocol, platform, or ecosystem integration requires that exact path
+- The exact path, source of truth, content type, auth model, and unsupported behavior MUST be documented in the template/`IDEA.md`
+- New entries MUST be added to the route tables, reserved-route checks, and the audit/final checklist
+- If a requested capability can live under `/server/*` or `/api/{api_version}/server/*` without breaking interoperability, do NOT put it under `/.well-known/`
 
 ### robots.txt
 
@@ -15217,7 +15858,7 @@ Files can be served from:
 User-agent: *
 Allow: /
 Allow: /api
-Disallow: /admin
+Disallow: /server/{admin_path}
 Sitemap: {app_url}/sitemap.xml
 ```
 
@@ -15229,7 +15870,7 @@ web:
       - /
       - /api
     deny:
-      - /admin
+      - /server/{admin_path}
 ```
 
 ### security.txt (RFC 9116)
@@ -15249,6 +15890,18 @@ web:
   security:
     contact: "security@{fqdn}"    # Security contact email
     expires: "{1year}"            # Auto-calculated 1 year from generation
+  well_known:
+    unsupported_behavior: 404     # Unknown entries never redirect
+    webfinger:
+      enabled: false              # Enable only if project publishes acct: identities/federation
+    openid_configuration:
+      enabled: false              # Enable only if project is an OIDC provider
+    assetlinks:
+      enabled: false              # Enable only for Android App Links/native association
+    apple_app_site_association:
+      enabled: false              # Enable only for Apple Universal Links/WebCredentials
+    mta_sts:
+      enabled: false              # Enable only if this host owns inbound mail policy
 ```
 
 **Fields:**
@@ -15257,14 +15910,14 @@ web:
 | `Contact` | YES | Email for reporting vulnerabilities (mailto: prefix added automatically) |
 | `Expires` | YES | Expiration date (auto-renewed yearly by default) |
 
-### Admin Panel (/{admin_path}/web)
+### Admin Panel (/server/{admin_path}/config/web)
 
 **robots.txt Settings:**
 
 | Element | Type | Description |
 |---------|------|-------------|
 | Allow paths | Tag input / List | Paths to allow crawling (e.g., `/`, `/api`) |
-| Deny paths | Tag input / List | Paths to deny crawling (e.g., `/admin`) |
+| Deny paths | Tag input / List | Paths to deny crawling (e.g., `/server/{admin_path}`) |
 | Preview | Read-only textarea | Shows generated robots.txt content |
 
 **security.txt Settings:**
@@ -15274,6 +15927,23 @@ web:
 | Security contact | Text input | Email for vulnerability reports |
 | Expires | Date picker | Expiration date (default: 1 year from now, auto-renews) |
 | Preview | Read-only textarea | Shows generated security.txt content |
+
+**Well-Known Settings:**
+
+| Element | Type | Description |
+|---------|------|-------------|
+| Supported entries | Read-only table | Shows each allowlisted `/.well-known/...` entry and whether it is required, enabled, or disabled |
+| Optional entry toggles | Toggle list | Enable/disable optional well-known entries such as `webfinger`, `assetlinks.json`, Apple association, or `mta-sts.txt` when the project actually uses them |
+| Entry source | Read-only / selector | Shows whether an entry is dynamic, config-backed, data-dir override, or embedded default |
+| Preview | Read-only viewer | Preview the exact rendered body/JSON for the selected entry |
+| Unsupported behavior note | Read-only help text | Unknown `/.well-known/*` entries return `404`; no directory listing |
+
+**Health Route Settings:**
+
+| Element | Type | Description |
+|---------|------|-------------|
+| Root `/healthz` alias | Toggle | Enables `server.healthz.root.enabled` |
+| Behavior note | Read-only help text | `/healthz` maps directly to `/server/healthz` using the same handler; never redirects |
 
 ## Security Reports — Coordinated Disclosure Pipeline
 
@@ -15335,25 +16005,25 @@ web:
 | `/server/security/thanks` | GET | None | Acknowledgments page. Lists researchers who opted in (real name, handle, or anonymized "Anonymous Researcher #n") with the year and short credit. |
 | `/server/security/report/{tracking_id}` | GET | One-shot token in URL | Researcher status page — shows triage state (Received / Triaged / Confirmed / Patching / Disclosed / Won't Fix), maintainer comments visible to researcher, expected disclosure date. Token is single-use-per-day; expires after the report is closed for 30 days. |
 
-### Admin Panel — `/{admin_path}/server/security/`
+### Admin Panel — `/server/{admin_path}/config/security/`
 
 **Note on the two `security` admin namespaces:**
 
 | Path | Concern | Cross-link |
 |------|---------|------------|
-| `/{admin_path}/server/security/{reports,policy,thanks,keypair}` | **Disclosure feature** — managing the coordinated-disclosure pipeline (reports, policy page, hall of fame, GPG keypair). | This section. |
-| `/{admin_path}/server/security/{blocked-ips,allowlist,locked-accounts}` | **Runtime defense** — IP blocks, allow-lists, account lockouts. | PART 11 → "IP Block Management" (already documented). |
-| `/{admin_path}/server/web/security` | **`security.txt` content** — the file's `Expires`, languages, keyservers list. Recipient email is in `server.contact.security` (PART 12). | Existing — PART 11 → "security.txt". |
+| `/server/{admin_path}/config/security/{reports,policy,thanks,keypair}` | **Disclosure feature** — managing the coordinated-disclosure pipeline (reports, policy page, hall of fame, GPG keypair). | This section. |
+| `/server/{admin_path}/config/security/{blocked-ips,allowlist,locked-accounts}` | **Runtime defense** — IP blocks, allow-lists, account lockouts. | PART 11 → "IP Block Management" (already documented). |
+| `/server/{admin_path}/config/web/security` | **`security.txt` content** — the file's `Expires`, languages, keyservers list. Recipient email is in `server.contact.security.email` (PART 12). | Existing — PART 11 → "security.txt". |
 
 All three coexist under the admin tree. The admin-panel UI groups them under a single "Security" sidebar entry with sub-tabs so operators see them in one place even though the route paths are slightly different.
 
 | Page | Purpose |
 |------|---------|
-| `/{admin_path}/server/security/reports` | List of all security reports with `tracking_id`, summary, severity, state. Sortable/filterable. Click → full report (decrypted on the server, viewed in-browser via authenticated session — never sent to log files). |
-| `/{admin_path}/server/security/reports/{tracking_id}` | Full report view: vulnerability details, researcher info, attached PGP-encrypted artifacts, triage notes, state machine controls, "send researcher update" composer (encrypts to researcher pubkey). |
-| `/{admin_path}/server/security/policy` | Edit `/server/security/policy` content (Markdown). Default safe-harbor text provided. |
-| `/{admin_path}/server/security/thanks` | Manage acknowledgment listings (toggle visibility per researcher, edit handle, sort order). Adding/removing entries follows researcher's stored credit preference. |
-| `/{admin_path}/server/security/keypair` | GPG keypair management — see "GPG Keypair Management" below. |
+| `/server/{admin_path}/config/security/reports` | List of all security reports with `tracking_id`, summary, severity, state. Sortable/filterable. Click → full report (decrypted on the server, viewed in-browser via authenticated session — never sent to log files). |
+| `/server/{admin_path}/config/security/reports/{tracking_id}` | Full report view: vulnerability details, researcher info, attached PGP-encrypted artifacts, triage notes, state machine controls, "send researcher update" composer (encrypts to researcher pubkey). |
+| `/server/{admin_path}/config/security/policy` | Edit `/server/security/policy` content (Markdown). Default safe-harbor text provided. |
+| `/server/{admin_path}/config/security/thanks` | Manage acknowledgment listings (toggle visibility per researcher, edit handle, sort order). Adding/removing entries follows researcher's stored credit preference. |
+| `/server/{admin_path}/config/security/keypair` | GPG keypair management — see "GPG Keypair Management" below. |
 
 ### GPG Keypair Management (Admin Panel)
 
@@ -15393,7 +16063,7 @@ All three coexist under the admin tree. The admin-panel UI groups them under a s
 
 **Restore behavior:** restoring a backup re-installs the keypair AND re-publishes the public key to the configured keyservers (idempotent — keyservers de-duplicate by fingerprint). The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `caspbx backup create` and `caspbx backup restore` covers the security keypair without any extra steps. Admin panel "Test Backup" runs a dry-run restore of the keypair specifically and reports whether the encrypted private key decrypts successfully.
+**Operator UX:** running `{project_name} backup create` and `{project_name} backup restore` covers the security keypair without any extra steps. Admin panel "Test Backup" runs a dry-run restore of the keypair specifically and reports whether the encrypted private key decrypts successfully.
 
 ## Logging
 
@@ -15413,9 +16083,9 @@ All three coexist under the admin tree. The admin-panel UI groups them under a s
 **Access Log Formats:**
 | Format | Description | Example |
 |--------|-------------|---------|
-| `apache` | Apache Combined Log Format (default) | `127.0.0.1 - - [10/Oct/2024:13:55:36 -0700] "GET /api/{api_version}/healthz HTTP/1.1" 200 2326 "-" "curl/7.64.1"` |
-| `nginx` | Nginx Common Log Format | `127.0.0.1 - - [10/Oct/2024:13:55:36 -0700] "GET /api/{api_version}/healthz HTTP/1.1" 200 2326` |
-| `json` | Structured JSON | `{"ip":"127.0.0.1","time":"2024-10-10T13:55:36Z","method":"GET","path":"/api/{api_version}/healthz","status":200,"size":2326,"ua":"curl/7.64.1"}` |
+| `apache` | Apache Combined Log Format (default) | `127.0.0.1 - - [10/Oct/2024:13:55:36 -0700] "GET /api/{api_version}/server/healthz HTTP/1.1" 200 2326 "-" "curl/7.64.1"` |
+| `nginx` | Nginx Common Log Format | `127.0.0.1 - - [10/Oct/2024:13:55:36 -0700] "GET /api/{api_version}/server/healthz HTTP/1.1" 200 2326` |
+| `json` | Structured JSON | `{"ip":"127.0.0.1","time":"2024-10-10T13:55:36Z","method":"GET","path":"/api/{api_version}/server/healthz","status":200,"size":2326,"ua":"curl/7.64.1"}` |
 
 **Security Log Formats:**
 | Format | Description | Use Case |
@@ -15744,8 +16414,11 @@ server:
 | `config.tor_address_regenerated` | Onion address regenerated | Changed by |
 | `config.branding_updated` | Branding settings changed | Changed by |
 | `config.oidc_provider_added` | OIDC provider configured | Provider name, added by |
+| `config.oidc_provider_updated` | OIDC provider changed | Provider name, changed by |
 | `config.oidc_provider_removed` | OIDC provider removed | Provider name, removed by |
-| `config.ldap_updated` | LDAP settings changed | Changed by |
+| `config.ldap_provider_added` | LDAP provider configured | Provider name, added by |
+| `config.ldap_provider_updated` | LDAP provider changed | Provider name, changed by |
+| `config.ldap_provider_removed` | LDAP provider removed | Provider name, removed by |
 | `config.admin_groups_updated` | Admin group mapping changed | Old groups, new groups, changed by |
 
 ### Security Events
@@ -15932,7 +16605,7 @@ server:
 - Show only first 8 characters: `token_abc12345...`
 - Or use separate ID field that doesn't expose token value
 
-## Admin Panel (`/{admin_path}/server/logs/audit`)
+## Admin Panel (`/server/{admin_path}/config/logs/audit`)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -16245,9 +16918,9 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | `/users/consents` | PATCH | Update consent preferences |
 | `/server/privacy` | GET | Privacy policy |
 | `/server/dpo` | GET | Data Protection Officer contact (GDPR) |
-| `/{admin_path}/server/compliance` | GET | Compliance dashboard |
-| `/{admin_path}/server/compliance/report` | POST | Generate compliance report |
-| `/{admin_path}/server/compliance/breach` | POST | Report data breach |
+| `/server/{admin_path}/config/compliance` | GET | Compliance dashboard |
+| `/server/{admin_path}/config/compliance/report` | POST | Generate compliance report |
+| `/server/{admin_path}/config/compliance/breach` | POST | Report data breach |
 
 ### Compliance API Endpoints
 
@@ -16258,15 +16931,15 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | `/api/{api_version}/users/data/delete` | POST | Request deletion |
 | `/api/{api_version}/users/consents` | GET | Get consents |
 | `/api/{api_version}/users/consents` | PATCH | Update consents |
-| `/api/{api_version}/{admin_path}/server/compliance` | GET | Compliance status |
-| `/api/{api_version}/{admin_path}/server/compliance/standards` | GET | Enabled standards |
-| `/api/{api_version}/{admin_path}/server/compliance/report` | POST | Generate report |
-| `/api/{api_version}/{admin_path}/server/compliance/breach` | POST | Report breach |
-| `/api/{api_version}/{admin_path}/server/compliance/audit` | GET | Compliance audit log |
+| `/api/{api_version}/server/{admin_path}/config/compliance` | GET | Compliance status |
+| `/api/{api_version}/server/{admin_path}/config/compliance/standards` | GET | Enabled standards |
+| `/api/{api_version}/server/{admin_path}/config/compliance/report` | POST | Generate report |
+| `/api/{api_version}/server/{admin_path}/config/compliance/breach` | POST | Report breach |
+| `/api/{api_version}/server/{admin_path}/config/compliance/audit` | GET | Compliance audit log |
 
 ### Admin UI: Compliance Dashboard
 
-**Location:** `/{admin_path}/server/compliance`
+**Location:** `/server/{admin_path}/config/compliance`
 
 | Section | Description |
 |---------|-------------|
@@ -16536,33 +17209,45 @@ type IPBlock struct {
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/security/blocked-ips` | GET | List blocked IPs |
-| `/api/{api_version}/{admin_path}/server/security/blocked-ips` | POST | Manually block IP/CIDR |
-| `/api/{api_version}/{admin_path}/server/security/blocked-ips/{ip}` | GET | Get block details |
-| `/api/{api_version}/{admin_path}/server/security/blocked-ips/{ip}` | DELETE | Unblock IP |
-| `/api/{api_version}/{admin_path}/server/security/blocked-ips/expired` | DELETE | Purge expired blocks from log |
-| `/api/{api_version}/{admin_path}/server/security/allowlist` | GET | List allowlisted IPs/CIDRs (see Allowlist section) |
-| `/api/{api_version}/{admin_path}/server/security/allowlist` | POST | Add IP/CIDR to allowlist |
-| `/api/{api_version}/{admin_path}/server/security/allowlist/{id}` | DELETE | Remove from allowlist |
-| `/api/{api_version}/{admin_path}/server/security/allowlist/check/{ip}` | GET | Check if IP is allowlisted |
+| `/api/{api_version}/server/{admin_path}/config/security/blocked-ips` | GET | List blocked IPs |
+| `/api/{api_version}/server/{admin_path}/config/security/blocked-ips` | POST | Manually block IP/CIDR |
+| `/api/{api_version}/server/{admin_path}/config/security/blocked-ips/{ip}` | GET | Get block details |
+| `/api/{api_version}/server/{admin_path}/config/security/blocked-ips/{ip}` | DELETE | Unblock IP |
+| `/api/{api_version}/server/{admin_path}/config/security/blocked-ips/expired` | DELETE | Purge expired blocks from log |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist` | GET | List allowlisted IPs/CIDRs (see Allowlist section) |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist` | POST | Add IP/CIDR to allowlist |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist/{id}` | DELETE | Remove from allowlist |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist/check/{ip}` | GET | Check if IP is allowlisted |
 
 **Account Lockout API:**
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/security/locked-accounts` | GET | List locked accounts |
-| `/api/{api_version}/{admin_path}/server/security/locked-accounts/{id}` | DELETE | Unlock account |
+| `/api/{api_version}/server/{admin_path}/config/security/locked-accounts` | GET | List locked accounts |
+| `/api/{api_version}/server/{admin_path}/config/security/locked-accounts/{id}` | DELETE | Unlock account |
 
 **Security Settings API:**
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/security/settings` | GET | Get all security settings |
-| `/api/{api_version}/{admin_path}/server/security/settings` | PATCH | Update security settings |
-| `/api/{api_version}/{admin_path}/server/security/auth` | GET | Get auth settings (password policy, etc.) |
-| `/api/{api_version}/{admin_path}/server/security/auth` | PATCH | Update auth settings |
-| `/api/{api_version}/{admin_path}/server/security/ratelimit` | GET | Get rate limit settings |
-| `/api/{api_version}/{admin_path}/server/security/ratelimit` | PATCH | Update rate limit settings |
+| `/api/{api_version}/server/{admin_path}/config/security/settings` | GET | Get all security settings |
+| `/api/{api_version}/server/{admin_path}/config/security/settings` | PATCH | Update security settings |
+| `/api/{api_version}/server/{admin_path}/config/security/auth` | GET | Get auth settings (password policy, provider summaries, etc.) |
+| `/api/{api_version}/server/{admin_path}/config/security/auth` | PATCH | Update shared auth settings |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers` | GET | List configured OIDC providers |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers` | POST | Create OIDC provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers/{provider}` | GET | Get one OIDC provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers/{provider}` | PATCH | Update one OIDC provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers/{provider}` | DELETE | Remove one OIDC provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/oidc/providers/{provider}/test` | POST | Test one OIDC provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers` | GET | List configured LDAP providers |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers` | POST | Create LDAP provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers/{provider}` | GET | Get one LDAP provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers/{provider}` | PATCH | Update one LDAP provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers/{provider}` | DELETE | Remove one LDAP provider |
+| `/api/{api_version}/server/{admin_path}/config/security/auth/ldap/providers/{provider}/test` | POST | Test one LDAP provider |
+| `/api/{api_version}/server/{admin_path}/config/security/ratelimit` | GET | Get rate limit settings |
+| `/api/{api_version}/server/{admin_path}/config/security/ratelimit` | PATCH | Update rate limit settings |
 
 **Password Policy (Sane Defaults):**
 
@@ -16602,9 +17287,9 @@ When compliance standards are enabled, password policy automatically upgrades:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/security/tokens` | GET | List all API tokens (admin view) |
-| `/api/{api_version}/{admin_path}/server/security/tokens/{id}` | DELETE | Revoke token |
-| `/api/{api_version}/{admin_path}/server/security/tokens/{id}/rotate` | POST | Force token rotation |
+| `/api/{api_version}/server/{admin_path}/config/security/tokens` | GET | List all API tokens (admin view) |
+| `/api/{api_version}/server/{admin_path}/config/security/tokens/{id}` | DELETE | Revoke token |
+| `/api/{api_version}/server/{admin_path}/config/security/tokens/{id}/rotate` | POST | Force token rotation |
 
 **Token Expiry (Sane Defaults):**
 
@@ -16691,10 +17376,10 @@ type AllowlistEntry struct {
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/security/allowlist` | GET | List all allowlisted IPs/CIDRs |
-| `/api/{api_version}/{admin_path}/server/security/allowlist` | POST | Add IP/CIDR with optional description |
-| `/api/{api_version}/{admin_path}/server/security/allowlist/{id}` | DELETE | Remove from allowlist |
-| `/api/{api_version}/{admin_path}/server/security/allowlist/check/{ip}` | GET | Check if IP is allowlisted |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist` | GET | List all allowlisted IPs/CIDRs |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist` | POST | Add IP/CIDR with optional description |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist/{id}` | DELETE | Remove from allowlist |
+| `/api/{api_version}/server/{admin_path}/config/security/allowlist/check/{ip}` | GET | Check if IP is allowlisted |
 
 **Middleware:**
 
@@ -16722,7 +17407,7 @@ func IsAllowlisted(ctx context.Context) bool {
 }
 ```
 
-**Admin UI (`/{admin_path}/server/security/allowlist`):**
+**Admin UI (`/server/{admin_path}/config/security/allowlist`):**
 
 **Note:** Wireframe shows English for documentation. Actual UI renders ALL text via `t()` translation keys (see `admin.allowlist.*` in translation files). User sees their selected language.
 
@@ -16774,7 +17459,7 @@ func IsAllowlisted(ctx context.Context) bool {
 
 **Admin UI: IP Blocks**
 
-**Location:** `/{admin_path}/server/security/blocked-ips`
+**Location:** `/server/{admin_path}/config/security/blocked-ips`
 
 | Section | Description |
 |---------|-------------|
@@ -16841,17 +17526,17 @@ func IsAllowlisted(ctx context.Context) bool {
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/breaches` | GET | List all breaches |
-| `/api/{api_version}/{admin_path}/server/breaches` | POST | Report new breach |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}` | GET | Get breach details |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}` | PATCH | Update breach status |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/investigate` | POST | Start investigation |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/contain` | POST | Mark as contained |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/notify` | POST | Send notifications |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/resolve` | POST | Mark as resolved |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/affected` | GET | List affected users |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/timeline` | GET | Breach timeline/events |
-| `/api/{api_version}/{admin_path}/server/breaches/{id}/report` | GET | Generate breach report |
+| `/api/{api_version}/server/{admin_path}/config/breaches` | GET | List all breaches |
+| `/api/{api_version}/server/{admin_path}/config/breaches` | POST | Report new breach |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}` | GET | Get breach details |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}` | PATCH | Update breach status |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/investigate` | POST | Start investigation |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/contain` | POST | Mark as contained |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/notify` | POST | Send notifications |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/resolve` | POST | Mark as resolved |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/affected` | GET | List affected users |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/timeline` | GET | Breach timeline/events |
+| `/api/{api_version}/server/{admin_path}/config/breaches/{id}/report` | GET | Generate breach report |
 
 **Breach Data Model:**
 
@@ -16896,7 +17581,7 @@ const (
 
 **Admin UI: Breach Management**
 
-**Location:** `/{admin_path}/server/compliance/breaches`
+**Location:** `/server/{admin_path}/config/compliance/breaches`
 
 | Section | Description |
 |---------|-------------|
@@ -17009,9 +17694,9 @@ labels:
 ```
 
 **Behavior:**
-- All routes prefixed with baseurl (e.g., `/myproject/healthz`, `/myproject/api/v1/...`)
+- All routes prefixed with baseurl (e.g., `/myproject/server/healthz`, `/myproject/api/v1/...`)
 - Static assets served from `{baseurl}/static/`
-- Admin panel at `{baseurl}/{admin_path}/`
+- Admin panel at `{baseurl}/server/{admin_path}/`
 - Generated URLs (redirects, links) use detected baseurl
 - Trailing slash normalized (both `/myproject` and `/myproject/` work)
 - Empty string treated as `/`
@@ -17167,7 +17852,8 @@ server:
     # Default is "security@{fqdn}" per RFC 2142 (the canonical role
     # mailbox for security issues, also referenced by RFC 9116).
     # Operator can override to a personal address; if explicitly
-    # set to "" it falls back to admin.email (and admin.webhooks).
+    # set to "" it falls back to server.contact.admin.email
+    # (and server.contact.admin.webhooks).
     security:
       email: "security@{fqdn}"   # RFC 2142 standard role mailbox
       webhooks:
@@ -17180,7 +17866,7 @@ server:
     # Recipient for /server/contact submissions (non-security). Public
     # surface — appears as the "Contact us" email if the contact page
     # exposes one.
-    # If empty: falls back to admin.email.
+    # If empty: falls back to server.contact.admin.email.
     general:
       email: ""             # default: server.contact.admin.email
       webhooks:
@@ -17226,7 +17912,7 @@ Every outbound webhook POST includes these headers so the receiver can verify th
 | `X-Webhook-Timestamp` | Unix seconds — receiver SHOULD reject if delta exceeds `±5 min` to prevent replay |
 | `X-Webhook-ID` | UUID v7 (PART 13) — idempotency key the receiver can use to deduplicate retries |
 | `X-Webhook-Event` | The event type (e.g., `security.report_received`, `admin.cluster_failover`) |
-| `User-Agent` | `caspbx/{project_version} (+{app_url})` |
+| `User-Agent` | `{project_name}/{project_version} (+{app_url})` |
 
 The signature applies to **all** transports — even built-in adapters (Telegram, Discord, Slack) get an `X-Webhook-Signature` header in the unlikely case their endpoint is forwarded somewhere that wants to verify origin. Adapters that the target service doesn't read (Telegram doesn't care about the header) ignore it harmlessly.
 
@@ -17247,7 +17933,7 @@ if !subtle.ConstantTimeCompare([]byte(got), []byte(want)) {
 
 | Role | When triggered | What is sent |
 |------|----------------|--------------|
-| `admin` | Server-internal events: error rate spike, panic, cluster failover, backup failure, cert renewal, security report received (summary only) | Subject + body + severity + a deep-link to `/{admin_path}/server/...`. NEVER includes user content. |
+| `admin` | Server-internal events: error rate spike, panic, cluster failover, backup failure, cert renewal, security report received (summary only) | Subject + body + severity + a deep-link to `/server/{admin_path}/config/...`. NEVER includes user content. |
 | `security` | Incoming security report (full content, encrypted), researcher status update, CVE assignment milestone | PGP-encrypted body if a researcher pubkey or admin pubkey is configured (PART 11 → "GPG Keypair Management"). |
 | `general` | `/server/contact` form submission (non-security) | Sender name, sender email, subject, message body. Spam-filtered before dispatch. |
 
@@ -17255,24 +17941,22 @@ if !subtle.ConstantTimeCompare([]byte(got), []byte(want)) {
 
 | Field | Public exposure | Notes |
 |-------|------------------|-------|
-| `admin.email` | NEVER public | Server-internal recipient only. |
-| `security.email` | Public (security.txt `Contact: mailto:` line) | Researchers need to reach you. Choose carefully. Suggest a role address (`security@{fqdn}`) over a personal one. |
-| `general.email` | Public (contact form, footer "Contact us") | Same — role address recommended. |
+| `server.contact.admin.email` | NEVER public | Server-internal recipient only. |
+| `server.contact.security.email` | Public (security.txt `Contact: mailto:` line) | Researchers need to reach you. Choose carefully. Suggest a role address (`security@{fqdn}`) over a personal one. |
+| `server.contact.general.email` | Public (contact form, footer "Contact us") | Same — role address recommended. |
 | Any `webhooks.*` | NEVER public | URLs contain bearer tokens / chat IDs / etc. |
 
-### Backward Compatibility
+### Canonical Contact Keys Only
 
-The previous flat keys are accepted and migrated on first read:
+Use only the canonical contact keys in all new config, examples, docs, UI, and code:
 
-| Legacy key | Migrated to |
-|------------|-------------|
-| `server.contact` (string email) | `server.contact.general.email` |
-| `web.security.contact` | `server.contact.security.email` |
-| `server.admin_email` / `admin.email` | `server.contact.admin.email` |
+- `server.contact.admin.email`
+- `server.contact.security.email`
+- `server.contact.general.email`
 
-Migration writes the new structure to `server.yml` on first save and logs `config.contact_migrated`. The legacy keys are then ignored.
+Do NOT introduce flat aliases, duplicate names, or migration shims for contact recipients unless the user explicitly requests a migration feature.
 
-### Admin Panel — `/{admin_path}/server/notify`
+### Admin Panel — `/server/{admin_path}/config/notify`
 
 Single page with three tabs (Admin / Security / General). Each tab shows email + webhooks for that role with "test" buttons that send a sample notification through every configured transport.
 
@@ -17525,7 +18209,7 @@ func TrackingScript() template.HTML {
 {{ trackingScript }}
 ```
 
-### Admin Panel (/{admin_path}/server/tracking)
+### Admin Panel (/server/{admin_path}/config/tracking)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -18007,7 +18691,7 @@ type ConsentState struct {
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Admin Panel (/{admin_path}/server/privacy)
+### Admin Panel (/server/{admin_path}/config/privacy)
 
 | Section | Elements |
 |---------|----------|
@@ -18116,7 +18800,7 @@ server:
     timeout: 5s
 
     # Key prefix to avoid collisions (use unique prefix per app)
-    prefix: "caspbx:"
+    prefix: "{project_name}:"
 
     # Default TTL
     ttl: 1h
@@ -18151,7 +18835,7 @@ server:
   cache:
     type: valkey
     url: ${CACHE_URL}  # valkey://user:pass@valkey.example.com:6379/0
-    prefix: "caspbx:"
+    prefix: "{project_name}:"
 ```
 
 **Using individual fields:**
@@ -18163,7 +18847,7 @@ server:
     port: 6379
     password: ${VALKEY_PASSWORD}
     db: 0
-    prefix: "caspbx:"
+    prefix: "{project_name}:"
 ```
 
 **Valkey/Redis Cluster:**
@@ -18177,7 +18861,7 @@ server:
       - valkey2.example.com:6379
       - valkey3.example.com:6379
     password: ${VALKEY_PASSWORD}
-    prefix: "caspbx:"
+    prefix: "{project_name}:"
 ```
 
 ### Cache Usage in Application
@@ -18191,7 +18875,7 @@ server:
 | Pub/Sub events | Yes | Real-time state sync |
 | Distributed locks | Yes | Prevent duplicate task execution |
 
-## Admin Panel (/{admin_path}/server/settings)
+## Admin Panel (/server/{admin_path}/config/settings)
 
 All settings above MUST be configurable via admin panel:
 
@@ -18214,12 +18898,13 @@ All settings above MUST be configurable via admin panel:
 ## Health Checks
 
 **Endpoints:**
-- `/healthz` - Frontend route (follows PART 14 content negotiation rules)
-- `/api/{api_version}/healthz` - API route (always JSON)
+- `/server/healthz` - Frontend route (follows PART 14 content negotiation rules)
+- Optional `/healthz` - root alias to `/server/healthz` only when `server.healthz.root.enabled: true`
+- `/api/{api_version}/server/healthz` - API route (JSON by default; text via PART 14 API rules)
 
-**Content negotiation:** Follows standard frontend rules (see PART 14). No special /healthz rules.
+**Content negotiation:** Follows standard frontend rules (see PART 14). No special `/server/healthz` rules. If `/healthz` is enabled, it follows the exact same negotiation because it mounts the same handler.
 
-**NO sub-routes** - just `/healthz`, not `/healthz/db` or `/healthz/**`
+**NO sub-routes** - just `/server/healthz`, not `/server/healthz/db` or `/server/healthz/**`
 
 ### Global vs App-Specific
 
@@ -18263,7 +18948,7 @@ All settings above MUST be configurable via admin panel:
 **Based on template PARTS: branding (PART 16), modes (PART 6), cluster (PART 10), features (PARTS 20, 32, 34, 35), scheduler (PART 19).**
 
 ```go
-// HealthResponse - canonical field order for /healthz
+// HealthResponse - canonical field order for /server/healthz
 // All fields required unless marked (omitempty)
 // See individual PARTS for field sources
 type HealthResponse struct {
@@ -18277,7 +18962,7 @@ type HealthResponse struct {
 
     // 3. Version & build info (PART 7: binary requirements)
     Version   string    `json:"version"`      // SemVer "1.0.0"
-    GoVersion string    `json:"go_version"`   // "go1.23.0"
+    GoVersion string    `json:"go_version"`   // runtime.Version() from the current build/runtime
     Build     BuildInfo `json:"build"`
 
     // 4. Runtime info (PART 6: application modes)
@@ -18424,7 +19109,7 @@ type StatsInfo struct {
 | Project description | `<p>` | No | `<p>A brief description</p>` |
 | Status | `.status-banner` | No | `<div class="status-banner status-ok">✅ Healthy</div>` |
 | Version | `<code>` | No | `<code>1.0.0</code>` |
-| Go version | `<code>` | No | `<code>go1.23.0</code>` |
+| Go version | `<code>` | No | `<code>{{.GoVersion}}</code>` |
 | Build commit | `<code>` | Optional | `<code>abc1234</code>` |
 | Build date | `<time>` | No | `<time datetime="2024-01-10">Jan 10, 2024</time>` |
 | Uptime | plain text | No | `2d 5h 30m` |
@@ -18462,9 +19147,11 @@ type StatsInfo struct {
 - ❌ `"database": "postgresql://user:pass@host:5432/db"`
 - ❌ `"database": {"host": "10.0.0.5", "port": 5432}`
 
-### /healthz Response Formats
+### /server/healthz Response Formats
 
 **Follows standard content negotiation (PART 14). Browser gets HTML, CLI gets text, API gets JSON.**
+
+**Optional root alias:** if `server.healthz.root.enabled: true`, `/healthz` MUST serve these exact same responses by mounting the same handler as `/server/healthz`. No redirect, no forked logic, no separate formatter path.
 
 #### HTML (browsers)
 
@@ -18472,7 +19159,7 @@ type StatsInfo struct {
 
 | Requirement | Details |
 |-------------|---------|
-| Page title | `caspbx - Health Status` |
+| Page title | `{project_name} - Health Status` |
 | Layout | Standard public layout (header, main.container, footer) |
 | CSS patterns | PART 16 global classes |
 | Field order | Same as backend struct (1-8) |
@@ -18484,7 +19171,7 @@ type StatsInfo struct {
 <!DOCTYPE html>
 <html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-dark">
 <head>
-  <title>caspbx - Health Status</title>
+  <title>{project_name} - Health Status</title>
   <!-- Standard meta, CSS, theme support -->
 </head>
 <body>
@@ -18512,7 +19199,7 @@ type StatsInfo struct {
         <dd><code>1.0.0</code></dd>
 
         <dt>🐹 Go Version</dt>
-        <dd><code>1.23.0</code></dd>
+        <dd><code>{{.GoVersion}}</code></dd>
 
         <dt>🔨 Build</dt>
         <dd><code>abc1234</code> (2024-01-10)</dd>
@@ -18698,7 +19385,7 @@ type StatsInfo struct {
   },
   "status": "healthy",
   "version": "1.0.0",
-  "go_version": "go1.23.0",
+  "go_version": "<runtime.Version()>",
   "build": {
     "commit": "abc1234",
     "date": "2024-01-10T10:00:00Z"
@@ -18743,9 +19430,9 @@ type StatsInfo struct {
 }
 ```
 
-### /api/{api_version}/healthz Security Rules
+### /api/{api_version}/server/healthz Security Rules
 
-**NEVER expose in /healthz response:**
+**NEVER expose in /server/healthz response:**
 
 | Category | NEVER Include | Why |
 |----------|---------------|-----|
@@ -18763,7 +19450,7 @@ type StatsInfo struct {
 
 | Category | OK to Include | Example |
 |----------|---------------|---------|
-| **Version** | App version, Go version, build info | `1.0.0`, `go1.23.0` |
+| **Version** | App version, Go version, build info | `1.0.0`, `<runtime.Version()>` |
 | **Status** | Health status, uptime | `healthy`, `2d 5h` |
 | **Features** | Enabled PUBLIC features only (not /metrics) | `multi_user: true` |
 | **Checks** | Service status (ok/error only) | `database: ok` |
@@ -18771,7 +19458,11 @@ type StatsInfo struct {
 | **Stats** | Aggregate counts only | `requests_total: 12345` |
 | **Mode** | Production/development | `production` |
 
-**Rule: If in doubt, don't include it. Health checks need status, not details.**
+**Rule: Health can be expansive if the field is intentionally public-safe and acceptable for any unauthenticated internet viewer to see.**
+
+- OK to include more detail when it is already publicly observable, already exposed elsewhere publicly, or operationally useful without increasing attack surface
+- NOT OK to include internal-only, secret, private-network, filesystem, credential, or admin-only detail
+- If in doubt, leave it out
 
 #### Plain Text (Accept: text/plain)
 
@@ -18788,7 +19479,7 @@ status: healthy
 
 # 3. Version & Build (PART 7)
 version: 1.0.0
-go_version: go1.23.0
+go_version: <runtime.Version()>
 build.commit: abc1234
 build.date: 2024-01-10T10:00:00Z
 
@@ -18829,9 +19520,13 @@ stats.requests_24h: 45678
 stats.active_connections: 42
 ```
 
-### /api/{api_version}/healthz (JSON only)
+### /api/{api_version}/server/healthz (JSON default)
 
-Same JSON response as `/healthz` with `Accept: application/json`. Always returns JSON regardless of Accept header.
+Same underlying health response as `/server/healthz`, but formatted using the standard `/api/**` response rules from PART 14:
+- default: JSON
+- `.txt`: text
+- `Accept: text/plain`: text
+- non-interactive API clients: text
 
 ### Single Instance Response
 
@@ -18848,7 +19543,7 @@ When not in cluster mode:
   "mode": "production",
   "uptime": "2d 5h 30m",
   "timestamp": "2024-01-15T10:30:00Z",
-  "go_version": "1.23.0",
+  "go_version": "<runtime.Version()>",
   "build": {
     "commit": "abc1234",
     "date": "2024-01-10T10:00:00Z"
@@ -18916,6 +19611,12 @@ When not in cluster mode:
 - `cluster.primary` - The primary server URL
 - `cluster.nodes` - All available nodes (agents/CLI use for automatic failover)
 
+**Who uses health endpoints:**
+- Browsers, curl, and uptime checks use `/server/healthz`
+- CLI and agents use `/api/{api_version}/server/healthz` for cluster discovery and failover updates
+- Unversioned `/api/healthz` exists for machine-friendly versionless probing
+- Cluster nodes do **NOT** use `/server/healthz` or `/api/{api_version}/server/healthz` as the authoritative failover signal; node liveness and primary election use shared DB state and heartbeats
+
 ## Versioning
 
 ### Semantic Versioning (SemVer) Rules
@@ -18951,7 +19652,7 @@ When not in cluster mode:
 ### --version Output
 
 ```
-caspbx {projectversion}
+{project_name} {projectversion}
 Built: {build_date}
 Go: {go_version}
 OS/Arch: {GOOS}/{GOARCH}
@@ -18980,6 +19681,21 @@ OS/Arch: {GOOS}/{GOARCH}
 - Update clients to use new endpoint
 - NO backwards compatibility shims, redirects, or deprecation periods
 
+### Route Migration Rule (Old Code to New Routes)
+
+**When route rules change, migrate the implementation - do NOT layer new routes on top of old code.**
+
+- Move handlers, templates, tests, links, and client calls to the canonical new route tree
+- Delete superseded routes after the new route is in place
+- Do NOT keep old and new route trees alive in parallel "for now"
+- Do NOT duplicate handlers just to satisfy both old and new paths
+- Unversioned API aliases (`/api/swagger`, `/api/graphql`, `/api/healthz`) MUST mount the SAME handler as their versioned canonical route - never redirect, never fork behavior
+- Migration is complete only when:
+  - old routes are removed
+  - docs/examples use only the canonical routes
+  - tests use only the canonical routes
+  - there is one handler tree per behavior, not duplicates
+
 ## API Versioning
 
 **Use versioned API: `/api/{api_version}`**
@@ -19006,10 +19722,10 @@ OS/Arch: {GOOS}/{GOARCH}
 | API Type | Frontend Required | Example |
 |----------|-------------------|---------|
 | **User-facing features** | Yes | `/api/{api_version}/users` → `/users` page |
-| **Admin features** | Yes | `/api/{api_version}/{admin_path}/*` → `/{admin_path}/*` pages |
-| **Health/status** | Yes | `/healthz` has HTML frontend (with emojis), `/api/{api_version}/healthz` is JSON |
+| **Admin features** | Yes | `/api/{api_version}/server/{admin_path}/*` → `/server/{admin_path}/*` pages |
+| **Health/status** | Yes | `/server/healthz` has HTML frontend (with emojis), `/api/{api_version}/server/healthz` is JSON, `/api/healthz` is direct alias JSON |
 | **Agent endpoints** | No | `/api/{api_version}/*/agents/*` - CLI/agent only |
-| **Cluster nodes** | No | `/api/{api_version}/{admin_path}/server/nodes/*` - node-to-node only |
+| **Cluster nodes** | No | `/api/{api_version}/server/{admin_path}/config/nodes/*` - node-to-node only |
 
 | Requirement | Description |
 |-------------|-------------|
@@ -19032,8 +19748,8 @@ OS/Arch: {GOOS}/{GOARCH}
 
 | API Endpoint | Why No Frontend |
 |--------------|-----------------|
-| `/api/{api_version}/{admin_path}/server/agents/*` | Agent binary uses directly |
-| `/api/{api_version}/{admin_path}/server/nodes/*` | Node-to-node cluster communication |
+| `/api/{api_version}/server/{admin_path}/config/agents/*` | Agent binary uses directly |
+| `/api/{api_version}/server/{admin_path}/config/nodes/*` | Node-to-node cluster communication |
 
 ### Frontend Functionality Requirements
 
@@ -19098,7 +19814,7 @@ Before adding ANY route, verify:
 - [ ] Is it versioned? (`/api/{api_version}/...`)
 - [ ] Is the resource name plural? (`users`, not `user`)
 - [ ] Is it lowercase with hyphens? (`api-keys`, not `API_Keys`)
-- [ ] Does the route follow scope rules? (`/auth/`, `/users/`, `/orgs/`, `/admin/`)
+- [ ] Does the route follow scope rules? (`/server/`, `/server/auth/`, `/server/{admin_path}/`, `/users/`, `/orgs/`)
 - [ ] If user-facing: does frontend route exist and work?
 - [ ] If system/agent: documented as API-only?
 
@@ -19118,11 +19834,13 @@ Before adding ANY route, verify:
 
 | Scope | Web Route | API Route | ID Required | Description |
 |-------|-----------|-----------|-------------|-------------|
-| **Server** | `/server/*` | `/api/{api_version}/server/*` | No | About, privacy, contact, help, terms |
-| **Auth** | `/auth/*` | `/api/{api_version}/auth/*` | No | Login, register, logout, OAuth |
+| **Server** | `/server/*` | `/api/{api_version}/server/*` | No | Server-owned public pages, docs, health |
+| **Auth** | `/server/auth/*` | `/api/{api_version}/server/auth/*` | No | Login, register, logout, 2FA, password, invite, verify |
 | **Users** | `/users/*` | `/api/{api_version}/users/*` | **No** | Current user's resources (from session) |
 | **Orgs** | `/orgs/*` | `/api/{api_version}/orgs/*` | **Yes** (`{slug}`) | User can own multiple orgs |
-| **Admin** | `/{admin_path}/*` | `/api/{api_version}/{admin_path}/*` | No | Server administration |
+| **Server Admin** | `/server/{admin_path}/*` | `/api/{api_version}/server/{admin_path}/*` | No | Admin dashboard root, admin self area, config subtree |
+| **Admin Self** | `/server/{admin_path}/{admin_username}/*` | `/api/{api_version}/server/{admin_path}/{admin_username}/*` | **Yes** (`{admin_username}`) | The authenticated admin's own account/profile/preferences/notifications |
+| **Admin Config** | `/server/{admin_path}/config/*` | `/api/{api_version}/server/{admin_path}/config/*` | No | ALL server-wide admin/configuration routes |
 | **Project** | `/*` | `/api/{api_version}/*` | Varies | Project-specific (jokes, pastes, etc.) |
 
 **Note:** Examples throughout this document use `/api/{api_version}/` as the default value. In code, always use `APIBasePath()` or `{api_version}` - never hardcode `v1`.
@@ -19139,13 +19857,13 @@ Before adding ANY route, verify:
 | `GET /api/{api_version}/users/security` | Current user's security settings |
 | `GET /api/{api_version}/users/settings` | Current user's preferences |
 
-**Admin routes for managing OTHER users use `/{admin_path}/users/{id}`:**
+**Admin routes for managing OTHER users use `/server/{admin_path}/config/users/{id}`:**
 
 | Route | Description |
 |-------|-------------|
-| `GET /api/{api_version}/{admin_path}/users` | List all users (admin) |
-| `GET /api/{api_version}/{admin_path}/users/{id}` | View specific user (admin) |
-| `PATCH /api/{api_version}/{admin_path}/users/{id}` | Edit specific user (admin) |
+| `GET /api/{api_version}/server/{admin_path}/config/users` | List all users (admin) |
+| `GET /api/{api_version}/server/{admin_path}/config/users/{id}` | View specific user (admin) |
+| `PATCH /api/{api_version}/server/{admin_path}/config/users/{id}` | Edit specific user (admin) |
 
 ### Org Routes - Slug Required
 
@@ -19182,7 +19900,7 @@ Before adding ANY route, verify:
 
 | Direction | Example | Reason |
 |-----------|---------|--------|
-| **API-only** | `/api/{api_version}/{admin_path}/server/agents/*`, `/api/{api_version}/{admin_path}/server/nodes/*` | Machine/system use only (see table above) |
+| **API-only** | `/api/{api_version}/server/{admin_path}/config/agents/*`, `/api/{api_version}/server/{admin_path}/config/nodes/*` | Machine/system use only (see table above) |
 | **Frontend-only** | `/server` → `/server/about` redirect | UX convenience redirects, no API equivalent needed |
 
 ### ID/Slug Consistency
@@ -19223,7 +19941,7 @@ GET /api/{api_version}/jokes?category=prog    ✗ Bad - should be path param
 GET /api/{api_version}/users/repos?page=2&limit=10    ✓ Pagination
 GET /api/{api_version}/jokes?sort=rating&order=desc   ✓ Sorting (project-scoped)
 GET /api/{api_version}/search/golang?safe=true        ✓ Filtering/options
-GET /api/{api_version}/{admin_path}/users?status=active&role=admin ✓ Admin filters
+GET /api/{api_version}/server/{admin_path}/config/users?status=active&role=admin ✓ Admin filters
 ```
 
 **Rules:**
@@ -19429,9 +20147,9 @@ tail -c 2 file.txt | od -An -tx1
 | Endpoint | Default | Browser | curl/CLI | API Client |
 |----------|---------|---------|----------|------------|
 | `/` (public pages) | HTML | HTML | Text | HTML |
-| `/{admin_path}/*` | HTML | HTML | HTML | HTML |
+| `/server/{admin_path}/*` | HTML | HTML | HTML | HTML |
 | `/api/{api_version}/*` | JSON | JSON | Text | JSON |
-| `/healthz` | HTML | HTML | Text | JSON (Accept: application/json) |
+| `/server/healthz` | HTML | HTML | Text | JSON (Accept: application/json) |
 | `*.txt` extension | Text | Text | Text | Text |
 
 ### Smart Content Negotiation
@@ -19494,16 +20212,16 @@ func getAPIResponseFormat(r *http.Request) string {
 
 **`.txt` extension support for API routes:**
 - ✓ ALL `/api/{api_version}/*` endpoints
-- ✓ Health API endpoints (`/api/{api_version}/healthz`)
+- ✓ Health API endpoints (`/api/{api_version}/server/healthz`)
 - ✓ Project-specific API endpoints
-- ✓ Admin API endpoints (`/api/{api_version}/{admin_path}/*`)
+- ✓ Admin API endpoints (`/api/{api_version}/server/{admin_path}/*`)
 
 **API Routes (JSON default, text via CLI/.txt/Accept header):**
 
 | Endpoint | Default | CLI Tool | With `.txt` | Accept: text/plain |
 |----------|---------|----------|-------------|-------------------|
 | `/api/{api_version}/jokes/random` | JSON | Text | Text | Text |
-| `/api/{api_version}/healthz` | JSON | Text | Text | Text |
+| `/api/{api_version}/server/healthz` | JSON | Text | Text | Text |
 | `/api/{api_version}/status` | JSON | Text | Text | Text |
 | `/api/{api_version}/users/{username}` | JSON | Text | Text | Text |
 
@@ -19513,14 +20231,14 @@ func getAPIResponseFormat(r *http.Request) string {
 |----------|---------|----------|-------------------|-------------------|
 | `/jokes/random` | HTML | Text | Text | HTML |
 | `/{username}` | HTML | Text | Text | HTML |
-| `/healthz` | HTML | Text | Text | HTML |
+| `/server/healthz` | HTML | Text | Text | HTML |
 | `/` | HTML | Text | Text | HTML |
 
 **Use cases:**
 
 **API with `.txt` extension:**
 - `curl -q -LSsf https://api.example.com/api/{api_version}/joke/random.txt` → Just the joke text
-- `curl -q -LSsf https://api.example.com/api/{api_version}/healthz.txt` → "OK" or "ERROR: ..."
+- `curl -q -LSsf https://api.example.com/api/{api_version}/server/healthz.txt` → "OK" or "ERROR: ..."
 - Scripts that need plain output without JSON parsing
 
 **Frontend with smart detection:**
@@ -19630,7 +20348,7 @@ When an HTTP tool (curl, wget, httpie) is detected, the server MUST:
 
 | Type | Examples | Detection | Response | Interactive | JS Support |
 |------|----------|-----------|----------|-------------|------------|
-| **Our Client** | `caspbx-cli` | `caspbx-cli/` in User-Agent | JSON (client handles formatting) | **YES** (TUI/GUI) | N/A |
+| **Our Client** | `{project_name}-cli` | `{project_name}-cli/` in User-Agent | JSON (client handles formatting) | **YES** (TUI/GUI) | N/A |
 | **Text Browsers** | lynx, w3m, links, elinks | User-Agent patterns | HTML **without JavaScript** (no-JS alternative) | **YES** (navigate, click) | **NO** |
 | **HTTP Tools** | curl, wget, httpie | User-Agent patterns | Formatted text (HTML2TextConverter) | **NO** (just dump output) | N/A |
 
@@ -19656,7 +20374,7 @@ When an HTTP tool (curl, wget, httpie) is detected, the server MUST:
 ```go
 // src/common/httputil/detect.go
 
-// isOurCliClient detects our own client binary (caspbx-cli)
+// isOurCliClient detects our own client binary ({project_name}-cli)
 // Client is INTERACTIVE (TUI/GUI) - receives JSON, renders itself
 func isOurCliClient(r *http.Request) bool {
     ua := r.Header.Get("User-Agent")
@@ -19886,7 +20604,7 @@ ID: joke_123
   • API Docs [/docs]
   • Get Another Joke [/jokes/random]
 ────────────────────────────────────────────────────────────────────────────────
-                    Powered by caspbx • v{version}
+                    Powered by {project_name} • v{version}
 ```
 
 **Request Handler Integration:**
@@ -19942,7 +20660,7 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | Client Type | Detection | Response | Interactive | JS Support |
 |-------------|-----------|----------|-------------|------------|
 | Browser (Chrome, Firefox) | User-Agent | HTML + JS | **Yes** | **Yes** |
-| **Our Client** (`caspbx-cli`) | `isOurCliClient()` | JSON | **Yes** (TUI/GUI) | N/A |
+| **Our Client** (`{project_name}-cli`) | `isOurCliClient()` | JSON | **Yes** (TUI/GUI) | N/A |
 | **Text Browsers** (lynx, w3m, links) | `isTextBrowser()` | HTML (no-JS) | **Yes** (navigate, click) | **No** |
 | **HTTP Tools** (curl, wget, httpie) | `isHttpTool()` | Formatted text | **No** (just dump) | N/A |
 | Accept: text/plain | Header | Formatted text | No | N/A |
@@ -20296,15 +21014,25 @@ See the **"Themes (NON-NEGOTIABLE - PROJECT-WIDE)"** section for the complete th
 
 ## External API Compatibility
 
-**Focus on create/init endpoint compatibility and response format matching - NOT replicating entire APIs.**
+**Default: compatibility means feature compatibility first - NOT route-for-route cloning.**
 
-When the user requests compatibility with external services (e.g., "compatible with pastebin.com", "support microbin clients", "work with opengist"), you MUST focus on **creation endpoints and response formats** - not hundreds of redundant routes.
+When the user requests compatibility with external services (e.g., "compatible with pastebin.com", "support microbin clients", "work with opengist"), the default is to match the target service's **features/behavior** using our own API/routes unless the user explicitly asks for route/API compatibility.
+
+### Compatibility Scope Rules
+
+| User Request | Meaning | Default Implementation |
+|--------------|---------|------------------------|
+| **"Compatible with X"** | Feature/behavior compatibility | Implement the target feature set using our standard routes |
+| **"1:1 parity" / "1:1+ parity"** | Feature parity, not automatic route parity | Match features, flows, and outputs; keep our routes unless route compatibility is also requested |
+| **"API compatibility" / "route compatibility" / "client compatibility"** | Feature compatibility **plus** the external routes needed for that compatibility | Implement the requested external route surface and map it to our internals |
+
+**Default is features. Routes are only included when route/API compatibility is explicitly requested.**
 
 ### Why Limited Compatibility?
 
 **Problem:** Replicating entire external APIs creates hundreds of routes that do mostly the same thing, adding massive complexity for minimal benefit.
 
-**Solution:** Implement ONLY the create/init endpoints and match response formats. This allows existing clients to work while keeping our codebase clean.
+**Solution:** Default to feature compatibility. Only add external route compatibility when the user explicitly asks for it.
 
 ### Compatibility Implementation
 
@@ -20314,18 +21042,15 @@ When the user requests compatibility with external services (e.g., "compatible w
    - Document the **response format** (fields, structure, content-type: JSON/XML/text)
    - Note required request parameters and authentication (if any)
 
-**2. Implement create/init compatibility:**
-   - Match the exact URL path for creating resources
-   - Support same request method (POST, PUT, etc.)
-   - Accept same parameters (query params, form fields, JSON body)
-   - Return response in same format with matching field names
-   - Preserve response content-type (JSON, XML, plain text, etc.)
+**2. Choose the compatibility level from the user request:**
+   - **Default / feature compatibility:** implement the same capability with our standard routes and response patterns
+   - **Explicit route/API compatibility:** also match the external URL paths, methods, parameters, and response formats for the requested surface
 
-**3. Use our standard routes for everything else:**
+**3. Use our standard routes unless route compatibility was explicitly requested:**
    - View: Use our standard `/api/{api_version}/{resource}/{id}` pattern
    - List: Use our standard `/api/{api_version}/{resource}` pattern
    - Search: Use our standard `/api/{api_version}/{resource}/search` pattern
-   - DO NOT replicate their entire API surface
+   - DO NOT replicate their entire API surface unless the user explicitly asked for route/API parity
 
 **Example - Pastebin Compatibility:**
 
@@ -20338,37 +21063,41 @@ AI Research:
 - Response: Plain text paste ID or URL
 
 AI Implementation:
-✓ POST /api/api_post.php → Create paste (compatible)
-✓ Response format matches (plain text ID)
-✗ Skip their /api/list, /api/trends, /api/raw/{id} (use our routes instead)
+✓ Paste creation feature behaves compatibly
+✓ Response format matches where required
+✓ Our standard routes remain the default
+✗ Skip their /api/list, /api/trends, /api/raw/{id} unless route/API compatibility was explicitly requested
 
 Result:
-- pastebin.com clients can CREATE pastes using familiar endpoint
-- Viewing/listing uses OUR standard API routes
-- Clean codebase without route duplication
+- Feature compatibility achieved
+- Route duplication avoided unless explicitly required
+- Clean codebase without unnecessary external API cloning
 ```
 
 **Rules:**
 | Rule | Description |
 |------|-------------|
 | **Research first** | NEVER guess - look up actual API documentation |
-| **Create/init only** | Implement creation endpoints, skip view/list/search/delete duplicates |
+| **Default is features** | Compatibility means feature/behavior parity unless route/API compatibility was explicitly requested |
+| **1:1 parity = features** | "1:1 parity" / "1:1+ parity" means feature parity, not automatic route parity |
+| **Routes only when asked** | Add external routes only when the user explicitly requests route/API/client compatibility |
 | **Match response format** | Field names, structure, content-type must match target exactly |
 | **Standard routes for rest** | Use our `/api/{api_version}/*` patterns for all other operations |
 | **Avoid complexity** | Do NOT add hundreds of redundant routes |
 | **Document compatibility** | List what IS and ISN'T compatible in AI.md |
 
 **What to implement:**
-- ✓ Create/init endpoints
+- ✓ Feature/behavior compatibility
+- ✓ Create/init endpoints when needed for client compatibility
 - ✓ Response format matching
 - ✓ Required authentication if applicable
 
 **What NOT to implement:**
-- ✗ View/retrieve endpoints (use our routes)
-- ✗ List/search endpoints (use our routes)
-- ✗ Delete endpoints (use our routes)
+- ✗ View/retrieve endpoints unless route/API compatibility was explicitly requested
+- ✗ List/search endpoints unless route/API compatibility was explicitly requested
+- ✗ Delete endpoints unless route/API compatibility was explicitly requested
 - ✗ Pagination variants (use our standard pagination)
-- ✗ Any route that duplicates our functionality
+- ✗ Any route that duplicates our functionality without an explicit compatibility need
 
 ### RFC-Based Applications (CRITICAL - NON-NEGOTIABLE)
 
@@ -20490,21 +21219,23 @@ Need additional compatible endpoints?"
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/` | GET | None | Web interface (HTML) |
-| `/healthz` | GET | None | Health check (HTML/JSON/text via content negotiation) |
+| `/server/healthz` | GET | None | Health check (HTML/JSON/text via content negotiation) |
+| `/healthz` | GET | None | Optional direct alias to `/server/healthz` when `server.healthz.root.enabled` is `true` |
 | `/server/docs/swagger` | GET | None | Swagger UI (interactive REST explorer; fetches spec from `/api/swagger`) |
 | `/server/docs/graphql` | GET | None | GraphiQL UI (interactive GraphQL explorer; POSTs to `/api/graphql`) |
 | `/metrics` | GET | Optional | Prometheus metrics |
-| `/{admin_path}` | GET | Session | Admin panel login |
-| `/{admin_path}/*` | ALL | Session | Admin panel pages |
+| `/server/{admin_path}` | GET | Session | Admin panel login |
+| `/server/{admin_path}/*` | ALL | Session | Admin panel pages |
 | `/api/autodiscover` | GET | None | Server settings, config schema, and options for CLI/agent (non-versioned) |
-| `/api/swagger` | GET | None | OpenAPI JSON spec — alias for current `{api_version}` |
-| `/api/graphql` | POST | None | GraphQL queries — alias for current `{api_version}` |
-| `/api/{api_version}/swagger` | GET | None | OpenAPI JSON spec (versioned) |
-| `/api/{api_version}/graphql` | POST | None | GraphQL queries (versioned; schema may differ across versions) |
-| `/api/{api_version}/healthz` | GET | None | Health check (JSON) |
-| `/api/{api_version}/{admin_path}/*` | ALL | Bearer | Admin API |
+| `/api/swagger` | GET | None | OpenAPI JSON spec — direct alias for current `{api_version}` |
+| `/api/graphql` | POST | None | GraphQL queries — direct alias for current `{api_version}` |
+| `/api/healthz` | GET | None | Health check JSON — direct alias for current `{api_version}` |
+| `/api/{api_version}/server/swagger` | GET | None | OpenAPI JSON spec (versioned) |
+| `/api/{api_version}/server/graphql` | POST | None | GraphQL queries (versioned; schema may differ across versions) |
+| `/api/{api_version}/server/healthz` | GET | None | Health check (JSON default; text via API rules) |
+| `/api/{api_version}/server/{admin_path}/*` | ALL | Bearer | Admin API |
 
-**NOTE:** OpenAPI is JSON only — no `.yaml` endpoint, no `.json` suffix on the path. The `/api/{api_version}/swagger` and `/api/swagger` paths return `Content-Type: application/json`.
+**NOTE:** OpenAPI is JSON only — no `.yaml` endpoint, no `.json` suffix on the path. The `/api/{api_version}/server/swagger` and `/api/swagger` paths return `Content-Type: application/json`.
 
 **Old paths removed:** `/openapi`, `/openapi.json`, `/graphql` (GET and POST at root) are no longer served. The new paths above are the only valid routes — do not implement redirects from the old paths.
 
@@ -20518,15 +21249,15 @@ Need additional compatible endpoints?"
 | The contract is stable across versions OR the alias is documented as "current version's contract" | The contract is version-specific and clients should pin a version |
 | The cost of forcing clients to read `/api/autodiscover` first is real | Versioning is the whole point (e.g., `/api/{api_version}/users`) |
 
-**Examples that get an alias:** `/api/swagger`, `/api/graphql`, `/api/debug/*` (current set).
-**Examples that do NOT get an alias:** `/api/{api_version}/users`, `/api/{api_version}/orgs`, `/api/{api_version}/healthz` (these stay versioned only).
+**Examples that get an alias:** `/api/swagger`, `/api/graphql`, `/api/healthz`, `/api/debug/*` (current set).
+**Examples that do NOT get an alias:** `/api/{api_version}/users`, `/api/{api_version}/orgs`, `/api/{api_version}/server/contact` (these stay versioned only).
 
 **Why "served directly — no redirect" (not a 301/302 to the versioned URL):**
 
 | Reason | Detail |
 |--------|--------|
 | **Compatibility** | Many CLI tools, language SDKs, and minimal HTTP clients do not follow redirects by default. A direct response works for everyone. |
-| **Latency** | Saves an extra round-trip on every cold call — matters most for `/api/swagger` (fetched on every SDK regen) and `/api/graphql` (every introspection). |
+| **Latency** | Saves an extra round-trip on every cold call — matters most for `/api/swagger` (fetched on every SDK regen), `/api/graphql` (every introspection), and `/api/healthz` (frequent health probes). |
 | **Caching** | Caches and CDNs cache the alias body directly. A 301 forces clients to cache *both* the redirect and the target, doubling cache entries. |
 | **POST safety** | `/api/graphql` is POST. A 301/302 from POST may convert to GET on some clients (RFC ambiguity). Direct serving avoids this. |
 | **Consistency** | The unversioned alias and versioned URL share one handler tree mounted at both paths — no duplicate code. |
@@ -20540,6 +21271,20 @@ Need additional compatible endpoints?"
 | Auth redirect for protected endpoints (e.g., admin debug API → login) | **Yes** | Security, unrelated |
 
 **Where to apply:** every unversioned `/api/<thing>` alias for a versioned endpoint. Mount the same handler at both the versioned path and the alias — do NOT implement the alias as a redirect to the versioned path.
+
+### Optional root operational alias: `/healthz`
+
+**`/healthz` is NOT a default route.** It exists only when explicitly enabled for integration compatibility.
+
+| Rule | Requirement |
+|------|-------------|
+| Config gate | `server.healthz.root.enabled: true` |
+| Default | Disabled |
+| Canonical route | `/server/healthz` remains canonical |
+| Behavior | Mount the SAME handler as `/server/healthz` |
+| Redirects | Forbidden |
+| Format | Same frontend negotiation as `/server/healthz` (HTML/text/JSON by current rules) |
+| Purpose | Compatibility for tooling that requires a root-level `/healthz` |
 
 ## Response Standards
 
@@ -20640,7 +21385,7 @@ Before proceeding, confirm you understand:
 - [ ] Project-wide theme system: light/dark/auto (dark is default)
 - [ ] Themes apply to entire project: WebUI, admin, Swagger, GraphQL
 - [ ] All 3 API types required: REST, Swagger, GraphQL (Swagger & GraphQL in sync)
-- [ ] Standard endpoints must exist (`/healthz`, `/api/{api_version}/swagger`, `/api/{api_version}/graphql`, `/api/swagger` alias, `/api/graphql` alias, `/server/docs/swagger`, `/server/docs/graphql`, `/{admin_path}`)
+- [ ] Standard endpoints must exist (`/server/healthz`, `/api/{api_version}/server/swagger`, `/api/{api_version}/server/graphql`, `/api/swagger` alias, `/api/graphql` alias, `/server/docs/swagger`, `/server/docs/graphql`, `/server/{admin_path}`)
 - [ ] OpenAPI uses JSON only (no YAML)
 
 ---
@@ -20663,7 +21408,7 @@ Before proceeding, confirm you understand:
 
 **ALL DNS providers are supported.** The admin WebUI provides a dropdown that dynamically shows the appropriate credential fields based on the selected provider.
 
-**Admin WebUI Flow (`/{admin_path}/server/ssl`):**
+**Admin WebUI Flow (`/server/{admin_path}/config/ssl`):**
 
 1. Select DNS provider from dropdown (all lego-supported providers available)
 2. Form dynamically shows required credential fields for that provider
@@ -20716,7 +21461,7 @@ Before proceeding, confirm you understand:
 
 | Environment | DOMAIN Value | Example |
 |-------------|--------------|---------|
-| **Development** | `caspbx` | `DOMAIN=jokes` |
+| **Development** | `{project_name}` | `DOMAIN=jokes` |
 | **Production** | Valid FQDN | `DOMAIN=api.example.com` |
 
 **Valid Production DOMAIN formats (comma-separated list supported):**
@@ -20922,9 +21667,9 @@ export DOMAIN=myapp.com,www.myapp.com,api.myapp.com
 **Dev TLDs are allowed in development mode but require global IP fallback for remote access.**
 
 **Dynamic Dev TLDs (project name as TLD):**
-- `caspbx` - e.g., `app.jokes`, `my.quotes`, `dev.api`
-- `caspbx.local` - e.g., `app.jokes.local`
-- `caspbx.test` - e.g., `app.jokes.test`
+- `{project_name}` - e.g., `app.jokes`, `my.quotes`, `dev.api`
+- `{project_name}.local` - e.g., `app.jokes.local`
+- `{project_name}.test` - e.g., `app.jokes.test`
 
 **Static Dev TLDs:**
 - `.local`, `.test`, `.example`, `.invalid` (RFC 6761)
@@ -20960,7 +21705,7 @@ func GetDisplayURL(projectName string, port int, isHTTPS bool) string {
 func isDevTLD(host, projectName string) bool {
     lower := strings.ToLower(host)
 
-    // Check dynamic project-specific TLD (e.g., app.jokes, dev.quotes, quotes, jokes, caspbx)
+    // Check dynamic project-specific TLD (e.g., app.jokes, dev.quotes, quotes, jokes, {project_name})
     if projectName != "" && strings.HasSuffix(lower, "."+strings.ToLower(projectName)) {
         return true
     }
@@ -21295,7 +22040,7 @@ formatURL(host, 8443, true)
 **Example (Production with SSL + Tor on 443):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
@@ -21310,7 +22055,7 @@ formatURL(host, 8443, true)
 **Example (Full Banner with Tor + I2P + SMTP):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: {app_mode}                           │
 ├───────────────────────────────────────────────────────────┤
@@ -21329,7 +22074,7 @@ formatURL(host, 8443, true)
 **Example (Production on port 8080):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
@@ -21343,7 +22088,7 @@ formatURL(host, 8443, true)
 **Example (Development on port 8080):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: development                          │
 ├───────────────────────────────────────────────────────────┤
@@ -21357,7 +22102,7 @@ formatURL(host, 8443, true)
 **Example (Development IPv6 on port 8080):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: development                          │
 ├───────────────────────────────────────────────────────────┤
@@ -21371,7 +22116,7 @@ formatURL(host, 8443, true)
 **Example (Production on port 80):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
@@ -21385,7 +22130,7 @@ formatURL(host, 8443, true)
 **Example (Production with debugging enabled):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: {app_mode} [debugging]               │
 ├───────────────────────────────────────────────────────────┤
@@ -21399,7 +22144,7 @@ formatURL(host, 8443, true)
 **Example (First Run - Setup Required):**
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: {app_mode}                           │
 ├───────────────────────────────────────────────────────────┤
@@ -21414,7 +22159,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  Setup Token: {setup_token}                               │
 │                                                           │
-│  Go to {proto}://{fqdn}/{admin_path}/server/setup         │
+│  Go to {proto}://{fqdn}/server/{admin_path}/config/setup         │
 │  and enter this token to complete setup.                  │
 │                                                           │
 │  This token will only be shown ONCE.                      │
@@ -21431,7 +22176,7 @@ formatURL(host, 8443, true)
 
 **60-79 cols (Compact - no ASCII art, icons + text):**
 ```
-🚀 CASPBX v{projectversion}
+🚀 {PROJECT_NAME} v{projectversion}
 🔒 Mode: {app_mode}
 🌐 {proto}://{fqdn}
 📡 Listening: {proto}://{address}:{port}
@@ -21440,7 +22185,7 @@ formatURL(host, 8443, true)
 
 **60-79 cols (Compact - First Run):**
 ```
-🚀 CASPBX v{projectversion}
+🚀 {PROJECT_NAME} v{projectversion}
 🔧 Mode: {app_mode}
 🌐 {proto}://{address}:{port}
 📡 Listening: {proto}://{address}:{port}
@@ -21448,20 +22193,20 @@ formatURL(host, 8443, true)
 
 🔑 SETUP REQUIRED
 Token: {setup_token}
-Go to: {proto}://{fqdn}/{admin_path}/server/setup
+Go to: {proto}://{fqdn}/server/{admin_path}/config/setup
 (Token shown ONCE)
 ```
 
 **40-59 cols (Minimal - abbreviated, no icons):**
 ```
-CASPBX {projectversion}
+{PROJECT_NAME} {projectversion}
 {app_mode}
 {fqdn}:{port}
 ```
 
 **40-59 cols (Minimal - First Run):**
 ```
-CASPBX {projectversion}
+{PROJECT_NAME} {projectversion}
 {app_mode}
 {address}:{port}
 SETUP: {setup_token}
@@ -21469,17 +22214,17 @@ SETUP: {setup_token}
 
 **<40 cols (Micro - single line):**
 ```
-CASPBX :{port}
+{PROJECT_NAME} :{port}
 ```
 
 **<40 cols (Micro - First Run):**
 ```
-CASPBX :{port} [SETUP]
+{PROJECT_NAME} :{port} [SETUP]
 ```
 
 **NO_COLOR / TERM=dumb (Plain text - no emojis, no box drawing, no colors):**
 ```
-CASPBX v{projectversion}
+{PROJECT_NAME} v{projectversion}
 Mode: {app_mode}
 URL: {proto}://{fqdn}
 Listening: {proto}://{address}:{port}
@@ -21488,7 +22233,7 @@ Started: {startup_datetime}
 
 **NO_COLOR / TERM=dumb (Plain - First Run):**
 ```
-CASPBX v{projectversion}
+{PROJECT_NAME} v{projectversion}
 Mode: {app_mode}
 URL: {proto}://{address}:{port}
 Listening: {proto}://{address}:{port}
@@ -21496,20 +22241,20 @@ Started: {startup_datetime}
 
 SETUP REQUIRED
 Token: {setup_token}
-Setup URL: {proto}://{fqdn}/{admin_path}/server/setup
+Setup URL: {proto}://{fqdn}/server/{admin_path}/config/setup
 This token will only be shown ONCE.
 ```
 
 **--color flag overrides (applies to all sizes):**
 ```bash
 # Force colors on (overrides NO_COLOR)
-caspbx --color=always
+{project_name} --color=always
 
 # Force colors off
-caspbx --color=never
+{project_name} --color=never
 
 # Auto-detect (default) - respects NO_COLOR, TERM, TTY
-caspbx --color=auto
+{project_name} --color=auto
 ```
 
 ### Console vs Logs
@@ -21676,8 +22421,8 @@ This is OPTIONAL and only applies to apps where user/org profiles are a core fea
 
 ```
 1. /api/{api_version}/*          → API routes (highest priority)
-2. /{admin_path}/*     → Admin panel (configurable path)
-3. /healthz           → Health check
+2. /server/{admin_path}/*     → Admin panel (configurable path)
+3. /server/healthz           → Health check
 4. /static/*          → Static assets
 5. /users/*           → Explicit user routes
 6. /orgs/*            → Explicit org routes
@@ -21691,7 +22436,7 @@ This is OPTIONAL and only applies to apps where user/org profiles are a core fea
 ```go
 var reservedNames = []string{
     // System routes
-    "api", "admin", "static", "assets", "healthz", "metrics",
+    "api", "server", "admin", "static", "assets", "healthz", "metrics",
     "login", "logout", "register", "signup", "signin", "auth",
     "oauth", "callback", "webhook", "webhooks",
 
@@ -21700,10 +22445,10 @@ var reservedNames = []string{
     "settings", "profile", "account", "dashboard",
     "search", "explore", "discover", "trending",
     "help", "support", "docs", "documentation",
-    "about", "contact", "terms", "privacy", "legal",
+    "about", "contact", "terms", "privacy", "legal", "security",
 
     // Technical
-    "graphql", "rest", "rpc", "ws", "websocket",
+    "graphql", "swagger", "rest", "rpc", "ws", "websocket",
     "cdn", "media", "uploads", "files", "images",
     ".well-known", "robots.txt", "sitemap.xml", "favicon.ico",
 
@@ -21971,15 +22716,15 @@ func detectClientType(r *http.Request) string {
 
 2. **API Endpoints** (programmatic):
    ```bash
-   curl -q -LSsf -X POST /api/{api_version}/auth/register -d '{"username":"test","email":"test@example.com"}'
+   curl -q -LSsf -X POST /api/{api_version}/server/auth/register -d '{"username":"test","email":"test@example.com"}'
    curl -q -LSsf -X PATCH /api/{api_version}/users -d '{"email":"new@test.com"}'  # Current user
-   curl -q -LSsf -X PATCH /api/{api_version}/{admin_path}/users/123 -d '{"email":"new@test.com"}'  # Admin
-   curl -q -LSsf -X DELETE /api/{api_version}/{admin_path}/users/123  # Admin
+   curl -q -LSsf -X PATCH /api/{api_version}/server/{admin_path}/config/users/123 -d '{"email":"new@test.com"}'  # Admin
+   curl -q -LSsf -X DELETE /api/{api_version}/server/{admin_path}/config/users/123  # Admin
    ```
 
 3. **Frontend Direct** (CLI/scripting):
    ```bash
-   curl -q -LSsf -X POST /auth/register -d 'username=test&email=test@example.com'  # Form-encoded
+   curl -q -LSsf -X POST /server/auth/register -d 'username=test&email=test@example.com'  # Form-encoded
    curl -q -LSsf /{username}  # Returns text (auto-detected) - public profile
    ```
 
@@ -23181,7 +23926,7 @@ dismissAllToasts();
 | **Theme** | - | Theme toggle (Dark/Light/Auto) |
 | *(divider)* | - | - |
 | **Help** | `/server/help` | Help documentation |
-| **Sign out** | `/auth/logout` | Log out |
+| **Sign out** | `/server/auth/logout` | Log out |
 
 **HTML Structure:**
 ```html
@@ -23204,7 +23949,7 @@ dismissAllToasts();
     </div>
     <div class="dropdown-divider" role="separator"></div>
     <a href="/server/help" class="dropdown-item" role="menuitem">Help</a>
-    <form action="/auth/logout" method="POST">
+    <form action="/server/auth/logout" method="POST">
       <button type="submit" class="dropdown-item logout" role="menuitem">Sign out</button>
     </form>
   </div>
@@ -23775,7 +24520,7 @@ self.addEventListener('notificationclick', event => {
 });
 ```
 
-**Admin Panel Settings (`/{admin_path}/server/notifications`):**
+**Admin Panel Settings (`/server/{admin_path}/config/notifications`):**
 - Enable/disable push notifications
 - VAPID key generation
 - Test push functionality
@@ -24178,7 +24923,7 @@ Example:
   start_url: "/app/dashboard"
 
   ✅ Controlled: /app/*, /app/settings, /app/users/123
-  ❌ Not controlled: /login, /api/*, /admin/*
+  ❌ Not controlled: /server/auth/*, /api/*, /server/{admin_path}/*
 ```
 
 **Tracking PWA launches:**
@@ -24803,6 +25548,14 @@ See **JavaScript Rules** section below for `app.js` structure.
 
 **ALL frontend HTML MUST use Go's `html/template` package.**
 
+**Untrusted-content rule:** pasted text, repo blobs, markdown files, and any user-submitted file content are data, not templates. Follow PART 11 "Untrusted File / Rich Content Handling" and NEVER pass user-controlled content through `template.HTML` unless it came from a sanitizer for an explicitly approved field.
+
+**`markdownToHTML` requirements:**
+- Disable raw HTML passthrough from the markdown source
+- Sanitize the rendered output with an allow-list policy before returning `template.HTML`
+- Escape code fences/source text before syntax-highlighting wrappers are added
+- Add safe link attributes for external URLs (`rel="noopener noreferrer nofollow ugc"`)
+
 | Location | Purpose |
 |----------|---------|
 | `src/server/template/` | All `.tmpl` template files |
@@ -24815,8 +25568,8 @@ See **JavaScript Rules** section below for `app.js` structure.
 ```
 src/server/template/
 ├── layout/
-│   ├── public.tmpl         # Public-facing layout (/, /auth/*, /server/*)
-│   └── admin.tmpl          # Admin panel layout (/admin/*)
+│   ├── public.tmpl         # Public-facing layout (/, /server/auth/*, /server/*)
+│   └── admin.tmpl          # Admin panel layout (/server/{admin_path}/*)
 ├── partial/
 │   ├── public/
 │   │   ├── header.tmpl     # Public header (logo, nav, login)
@@ -24887,8 +25640,8 @@ src/server/template/
 
 | Layout | Routes | Design Philosophy |
 |--------|--------|-------------------|
-| `public.tmpl` | `/`, `/auth/*`, `/server/*`, `/users/*` | Clean, marketing-friendly, top navigation |
-| `admin.tmpl` | `/{admin_path}/*` | Dashboard-style, sidebar navigation, data-dense |
+| `public.tmpl` | `/`, `/server/auth/*`, `/server/*`, `/users/*` | Clean, marketing-friendly, top navigation |
+| `admin.tmpl` | `/server/{admin_path}/*` | Dashboard-style, sidebar navigation, data-dense |
 
 ### Public Layout (`public.tmpl`)
 
@@ -24921,9 +25674,9 @@ src/server/template/
 | Rule | Description |
 |------|-------------|
 | **App-focused** | Navigation reflects the application's features and purpose |
-| **NO admin links** | NEVER link to `/admin` from public pages |
+| **NO admin links** | NEVER link to `/server/{admin_path}` from public pages |
 | **NO admin hints** | Do not advertise that an admin panel exists |
-| **Direct access only** | Admin panel accessed by navigating directly to `{fqdn}/admin` |
+| **Direct access only** | Admin panel accessed by navigating directly to `{fqdn}/server/{admin_path}` |
 
 **Public nav contains (project-specific):**
 - Home (`/`)
@@ -24935,7 +25688,7 @@ src/server/template/
 - ❌ Admin link
 - ❌ Dashboard link (unless user dashboard)
 - ❌ Settings link to admin settings
-- ❌ Any hint of `/admin/*` routes
+- ❌ Any hint of `/server/{admin_path}/*` routes
 
 ### Admin Layout (`admin.tmpl`)
 
@@ -25301,14 +26054,14 @@ partial/
 ```
 Desktop:
 ┌─────────────────────────────────────────────────────────────────┐
-│  caspbx                                      [User Icon] │  ← Header
+│  {project_name}                                      [User Icon] │  ← Header
 ├─────────────────────────────────────────────────────────────────┤
 │  Home  |  [App Section 1]  |  [App Section 2]  |  ...           │  ← Nav
 └─────────────────────────────────────────────────────────────────┘
 
 Mobile:
 ┌─────────────────────────────────────────────────────────────────┐
-│  caspbx                                      [User Icon] │  ← Header
+│  {project_name}                                      [User Icon] │  ← Header
 ├─────────────────────────────────────────────────────────────────┤
 │                                                      [☰ Menu]   │  ← Nav row
 └─────────────────────────────────────────────────────────────────┘
@@ -25323,7 +26076,7 @@ Mobile:
 ```html
 <!-- Header bar: site name + user icon -->
 <header class="header">
-  <a href="/" class="site-brand">caspbx</a>
+  <a href="/" class="site-brand">{project_name}</a>
 
   <!-- User icon (always visible, far right) -->
   <div class="user-menu">
@@ -25338,12 +26091,12 @@ Mobile:
           <a href="/users">Profile</a>
           <a href="/users/settings">Settings</a>
           <hr />
-          <a href="/auth/logout">Logout</a>
+          <a href="/server/auth/logout">Logout</a>
         </div>
       </div>
     {{ else }}
       <!-- Logged out: login icon -->
-      <a href="/auth/login" class="user-icon" aria-label="Login">
+      <a href="/server/auth/login" class="user-icon" aria-label="Login">
         <svg>...</svg>
       </a>
     {{ end }}
@@ -25849,8 +26602,8 @@ var ThemePaletteLight = ThemePalette{
 
 | Changes (User-Visible) | Does NOT Change (System) |
 |------------------------|--------------------------|
-| Page titles | Directory names (`caspbx/`) |
-| Browser tab | System username (`caspbx`) |
+| Page titles | Directory names (`{internal_name}/`) |
+| Browser tab | System username (`{internal_name}`) |
 | Header/logo text | Log filenames |
 | Footer branding | Config paths |
 | Email "From" name | Binary name |
@@ -25864,7 +26617,7 @@ var ThemePaletteLight = ThemePalette{
 server:
   branding:
     # Display name (e.g., "Jokes API")
-    title: "caspbx"
+    title: "{project_name}"
     # Short slogan (e.g., "The best jokes API")
     tagline: ""
     # Longer description for SEO/about
@@ -25993,7 +26746,7 @@ server:
 - Tags with invalid characters (potential XSS)
 - Tags exceeding max length
 
-**Admin Panel (/{admin_path}/server/seo):**
+**Admin Panel (/server/{admin_path}/config/seo):**
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -26006,10 +26759,13 @@ server:
 
 ### Static Files
 
+**If the project serves user-controlled files/blobs, follow PART 11 "Private File Delivery" and PART 11 "Untrusted File / Rich Content Handling".**
+
 | File | Purpose | Generated |
 |------|---------|-----------|
 | `/sitemap.xml` | Site map for search engines | Yes - auto-generated |
 | `/favicon.ico` | Browser favicon | Embedded default, customizable |
+| `/.well-known/*` | Standards/discovery/verification endpoints only | Mix of dynamic, config-backed, embedded, or feature-gated |
 
 ### Sitemap.xml
 
@@ -26040,11 +26796,11 @@ server:
 |-----------|---------|----------|------------------|
 | Homepage (`/`) | Always | 1.0 | daily |
 | Public pages | Always | 0.8 | weekly |
-| Documentation (`/docs`) | Always | 0.8 | weekly |
+| Public documentation pages (project-defined, if any) | Dynamic | 0.8 | weekly |
 | API docs (`/server/docs/swagger`, `/server/docs/graphql`) | Always | 0.7 | weekly |
 | User profiles (if public) | Dynamic | 0.6 | weekly |
-| Admin pages (`/admin/*`) | **NEVER** | - | - |
-| Auth pages (`/auth/*`) | **NEVER** | - | - |
+| Admin pages (`/server/{admin_path}/*`) | **NEVER** | - | - |
+| Auth pages (`/server/auth/*`) | **NEVER** | - | - |
 | API endpoints (`/api/*`) | **NEVER** | - | - |
 
 **Dynamic Content:**
@@ -26068,7 +26824,7 @@ server:
 - Split into multiple sitemap files: `/sitemap-1.xml`, `/sitemap-2.xml`, etc.
 - Each sitemap file max 50,000 URLs
 
-### Admin Panel (/{admin_path}/server/branding)
+### Admin Panel (/server/{admin_path}/config/branding)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -26141,7 +26897,7 @@ func DefaultFetchRemoteImageConfig() FetchRemoteImageConfig {
     return FetchRemoteImageConfig{
         MaxSize:       10 * 1024 * 1024, // 10MB
         Timeout:       30 * time.Second,
-        AllowedTypes:  []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/x-icon"},
+        AllowedTypes:  []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/x-icon"},
         AllowedSchemes: []string{"https"}, // NEVER allow http in production
     }
 }
@@ -26227,7 +26983,7 @@ func FetchRemoteImage(ctx context.Context, rawURL string, cfg FetchRemoteImageCo
     }
 
     // Set safe headers
-    req.Header.Set("User-Agent", "caspbx/1.0")
+    req.Header.Set("User-Agent", "{project_name}/1.0")
     req.Header.Set("Accept", strings.Join(cfg.AllowedTypes, ", "))
 
     resp, err := client.Do(req)
@@ -26290,19 +27046,21 @@ if err != nil {
 | **Size limits** | Limit download size (default 10MB) |
 | **Type validation** | Only allow image MIME types |
 | **Redirect validation** | Validate each redirect URL |
+
+**Rule:** remote user-controlled images follow the same active-content rules as uploads. Do NOT allow remote SVG unless the project explicitly sanitizes and rasterizes it before storage/display.
 | **Timeout** | Set reasonable timeout (default 30s) |
 
 ### Defaults
 
 | Field | Default Value |
 |-------|---------------|
-| `title` | `caspbx` |
+| `title` | `{project_name}` |
 | `tagline` | Empty |
 | `description` | Empty |
 | `keywords` | Empty |
 | All others | Empty |
 
-**Rule:** If `title` is empty, fall back to `caspbx`. Other fields are optional.
+**Rule:** If `title` is empty, fall back to `{project_name}`. Other fields are optional.
 
 ## Announcements
 
@@ -26335,7 +27093,7 @@ messages:
     # User can dismiss
 ```
 
-### Admin Panel (/{admin_path}/server/announcements)
+### Admin Panel (/server/{admin_path}/config/announcements)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -26393,12 +27151,13 @@ web:
 | Production | `*` | Allow all origins by default (configure if needed) |
 | Development | `*` | Allow all origins |
 
-### Admin Panel (/{admin_path}/server/web)
+### Admin Panel (/server/{admin_path}/config/web)
 
 | Element | Type | Description |
 |---------|------|-------------|
 | CORS Origins | Text input | Comma-separated list of allowed origins |
 | Allow All | Toggle | Quick toggle for `*` (all origins) |
+| Root `/healthz` alias | Toggle | Enables `server.healthz.root.enabled` for compatibility with tools that require `/healthz` |
 | Preview | Read-only | Shows resulting CORS headers |
 
 ## CSRF Protection
@@ -26451,7 +27210,7 @@ web:
     # Endpoints exempt from CSRF (operator-declared). Glob patterns supported.
     # Common exemptions: OAuth callbacks, webhook receivers.
     exempt_paths:
-      - /api/{api_version}/auth/oidc/*/callback
+      - /api/{api_version}/server/auth/oidc/*/callback
       - /api/{api_version}/webhooks/*
 ```
 
@@ -26624,8 +27383,8 @@ When admin edits `custom_html`, show:
 | Variable | Description |
 |----------|-------------|
 | `{current_year}` | Current year (e.g., 2025) |
-| `caspbx` | Project name |
-| `casapps` | Organization name |
+| `{project_name}` | Project name |
+| `{project_org}` | Organization name |
 | `{projectversion}` | Application version |
 | `{build_datetime}` | Build date/time |
 
@@ -26662,7 +27421,7 @@ When admin edits `custom_html`, show:
 
   <br />
 
-  <a href="/healthz">Last update: {build_datetime}</a>
+  <a href="/server/healthz">Last update: {build_datetime}</a>
 </footer>
 ```
 
@@ -26675,7 +27434,7 @@ When admin edits `custom_html`, show:
   <div class="admin-footer-content">
     <!-- Version info -->
     <span class="admin-footer-version">
-      <a href="/{admin_path}/server/info">caspbx {projectversion}</a>
+      <a href="/server/{admin_path}/config/info">{project_name} {projectversion}</a>
     </span>
 
     <span class="admin-footer-separator">•</span>
@@ -26754,7 +27513,7 @@ When admin edits `custom_html`, show:
 
 | Element | Description |
 |---------|-------------|
-| Version | Links to `/{admin_path}/server/info` - shows project name and version |
+| Version | Links to `/server/{admin_path}/config/info` - shows project name and version |
 | Docs | External link to ReadTheDocs documentation |
 | Status | Server health indicator (green/yellow/red) with status text |
 
@@ -26764,10 +27523,10 @@ When admin edits `custom_html`, show:
 |------|-------------|
 | **Compact** | Single line, minimal height |
 | **Informational** | Version, docs, status - no navigation |
-| **Status indicator** | Real-time server health from `/healthz` |
+| **Status indicator** | Real-time server health from `/server/healthz` |
 | **Same position rules** | Bottom of page, scrolls with content, centered |
 
-### Admin Panel (/{admin_path}/server/footer)
+### Admin Panel (/server/{admin_path}/config/footer)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -26776,8 +27535,8 @@ When admin edits `custom_html`, show:
 | Rendered preview | Preview pane | Shows rendered footer |
 
 **Related admin pages:**
-- Analytics tracking: `/{admin_path}/server/tracking` (PART 12: Analytics Tracking)
-- Privacy & consent: `/{admin_path}/server/privacy` (PART 12: Privacy & Consent)
+- Analytics tracking: `/server/{admin_path}/config/tracking` (PART 12: Analytics Tracking)
+- Privacy & consent: `/server/{admin_path}/config/privacy` (PART 12: Privacy & Consent)
 
 ## Cookie Consent Banner
 
@@ -26785,7 +27544,7 @@ When admin edits `custom_html`, show:
 
 **Configuration:** `server.privacy.consent` (see PART 12: Privacy & Consent)
 
-**Admin panel:** `/{admin_path}/server/privacy`
+**Admin panel:** `/server/{admin_path}/config/privacy`
 
 ### Banner Layout
 
@@ -26861,7 +27620,7 @@ message := cfg.Privacy.GetConsentMessage()  // Returns appropriate message based
 ```html
 <!-- Cookie Consent Banner - ALWAYS shown until user responds (we use cookies) -->
 <!-- {message} is dynamically selected based on server.privacy.data.sold -->
-<div id="cookie-consent" class="cookie-banner" data-sold="{data_sold}" style="display: none;">
+<div id="cookie-consent" class="cookie-banner cookie-banner--hidden" data-sold="{data_sold}">
   <div class="cookie-banner-content">
     <span class="cookie-message">
       {message} - <a href="{policy_url}" class="policy-link">{policy_text}</a>
@@ -26889,7 +27648,7 @@ const defaultConsent = {
 
   // No consent yet - show banner
   if (!stored && banner) {
-    banner.style.display = 'block';
+    banner.classList.remove('cookie-banner--hidden');
   }
 
   // Has consent - apply settings
@@ -26900,7 +27659,7 @@ const defaultConsent = {
     } catch (e) {
       // Legacy format or corrupted - show banner again
       localStorage.removeItem('cookieConsent');
-      if (banner) banner.style.display = 'block';
+      if (banner) banner.classList.remove('cookie-banner--hidden');
     }
   }
 })();
@@ -26946,7 +27705,7 @@ function savePreferences() {
 
 function saveAndApplyConsent(consent) {
   localStorage.setItem('cookieConsent', JSON.stringify(consent));
-  document.getElementById('cookie-consent').style.display = 'none';
+  document.getElementById('cookie-consent').classList.add('cookie-banner--hidden');
   applyConsent(consent);
 }
 
@@ -27014,6 +27773,10 @@ initCCPA();
 
 <style>
 /* Cookie Consent Banner - matches reference design */
+.cookie-banner--hidden {
+  display: none;
+}
+
 .cookie-banner {
   position: fixed;
   bottom: 0;
@@ -27268,7 +28031,7 @@ func trackingScript(r *http.Request) template.HTML {
 **Note:** Tor address is NOT shown here. Tor access is available via:
 - **Footer**: "Tor Support" link → `/server/help#tor-access` (shown when Tor is enabled)
 - **`/server/help`**: Tor Access section with .onion address, copy button, and setup instructions
-- **`/healthz`**: Tor status and .onion address (technical/status view)
+- **`/server/healthz`**: Tor status and .onion address (technical/status view)
 
 ### /server/privacy
 
@@ -27564,7 +28327,7 @@ func trackingScript(r *http.Request) template.HTML {
 
 **Note:** The `tracking` and `third_party.services` fields are populated based on `server.tracking` config. If no tracking is configured, they remain empty.
 
-**Admin Panel (`/{admin_path}/server/privacy`):**
+**Admin Panel (`/server/{admin_path}/config/privacy`):**
 
 | Tab | Fields |
 |-----|--------|
@@ -27587,7 +28350,7 @@ func trackingScript(r *http.Request) template.HTML {
 
 ### /server/contact
 
-**Contact form - sends message to admin or dedicated contact address.**
+**Contact form - sends message to the configured general contact recipient.**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -27597,7 +28360,7 @@ func trackingScript(r *http.Request) template.HTML {
 | Message | Textarea | Yes | Message body |
 | Captcha | Captcha | Yes | Spam prevention |
 
-**Submission sends email to `server.contact` address (or admin email if not set).**
+**Submission sends to `server.contact.general.email` (or falls back to `server.contact.admin.email` if general is empty).**
 
 ### /server/help
 
@@ -27752,9 +28515,11 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 
 ```yaml
 server:
-  # Contact form recipient
-  # If not set, uses admin email
-  contact: ""
+  contact:
+    general:
+      # Contact form recipient
+      # If empty, falls back to server.contact.admin.email
+      email: ""
 
   pages:
     about:
@@ -27769,8 +28534,6 @@ server:
     contact:
       # Enable contact form
       enabled: true
-      # Recipient email (if empty, uses server.contact or admin email)
-      recipient: ""
       # Captcha type: recaptcha, hcaptcha, simple (built-in)
       captcha: simple
       # Success message after form submission
@@ -27787,7 +28550,7 @@ server:
       content: ""
 ```
 
-### Admin Panel (/{admin_path}/server/pages)
+### Admin Panel (/server/{admin_path}/config/pages)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -27821,6 +28584,17 @@ server:
 | `/api/{api_version}/server/contact` | POST | Submit contact form |
 | `/api/{api_version}/server/help` | GET | Help content (JSON) |
 | `/api/{api_version}/server/terms` | GET | Terms of service (JSON) |
+| `/api/{api_version}/server/healthz` | GET | Health check (JSON default; text via API rules) |
+| `/api/{api_version}/server/swagger` | GET | OpenAPI JSON spec |
+| `/api/{api_version}/server/graphql` | POST | GraphQL endpoint |
+
+**Direct alias endpoints (same handler, no redirect):**
+
+| Alias | Canonical route |
+|-------|-----------------|
+| `/api/swagger` | `/api/{api_version}/server/swagger` |
+| `/api/graphql` | `/api/{api_version}/server/graphql` |
+| `/api/healthz` | `/api/{api_version}/server/healthz` |
 
 ### /server/ Frontend Routes
 
@@ -27832,6 +28606,10 @@ server:
 | `/server/contact` | Contact form page (HTML) |
 | `/server/help` | Help page (HTML) |
 | `/server/terms` | Terms of service page (HTML) |
+| `/server/healthz` | Health page (HTML) |
+| `/healthz` | Optional direct alias to `/server/healthz` when `server.healthz.root.enabled` is `true` |
+| `/server/docs/swagger` | Swagger UI (HTML) |
+| `/server/docs/graphql` | GraphQL UI (HTML) |
 
 **All /server/ pages follow standard frontend rules (PART 16):**
 - Full HTML with header/footer
@@ -27850,13 +28628,13 @@ server:
 
 **The admin panel is completely isolated from the public site.**
 
-**Note:** `/admin` is the default path. It can be changed via `server.admin_path` config. See "Configurable Admin Path" section below.
+**Note:** `/server/admin` is the default admin root. `{admin_path}` is configurable via `server.admin_path`. See "Configurable Admin Path" section below.
 
 | Rule | Description |
 |------|-------------|
-| **NEVER link to admin path** | No links to `/{admin_path}` on ANY public routes (`/**`) |
+| **NEVER link to admin path** | No links to `/server/{admin_path}` on ANY public routes (`/**`) |
 | **Intentional access only** | Users must manually type admin path in browser |
-| **Separate authentication** | Admin account is ONLY valid for `/{admin_path}/**` routes |
+| **Separate authentication** | Admin account is ONLY valid for `/server/{admin_path}/**` routes |
 | **No admin mentions** | Don't advertise admin panel existence anywhere |
 | **Separate session** | Admin session is separate from user sessions |
 
@@ -27864,9 +28642,9 @@ server:
 
 | User Type | Valid Routes | Authentication |
 |-----------|--------------|----------------|
-| **Admin** | `/{admin_path}/**` ONLY | Admin credentials (username/password) |
-| **Guest/Anon** | `/**` (except `/{admin_path}`) | None |
-| **Normal User** | `/**` (except `/{admin_path}`) | User account (if multi-user enabled) |
+| **Admin** | `/server/{admin_path}/**` ONLY | Admin credentials (username/password) |
+| **Guest/Anon** | `/**` (except `/server/{admin_path}`) | None |
+| **Normal User** | `/**` (except `/server/{admin_path}`) | User account (if multi-user enabled) |
 
 **Admin credentials are stored in `users.db` (admins table), NOT in config file.**
 
@@ -27902,85 +28680,89 @@ server:
 ### Route Structure
 
 ```
-/{admin_path}/                          # Admin root (dashboard)
-/{admin_path}/profile                   # Admin's own profile/preferences
-/{admin_path}/preferences               # Admin's own preferences/settings
-/{admin_path}/notifications             # Admin's own notifications
-/{admin_path}/server/                   # Server management (EVERYTHING ELSE)
-/{admin_path}/server/settings           # Server settings
-/{admin_path}/server/ssl                # SSL/TLS configuration
-/{admin_path}/server/email              # Email configuration
-/{admin_path}/server/scheduler          # Scheduled tasks
-/{admin_path}/server/logs               # Server logs
-/{admin_path}/server/logs/audit         # Audit logs
-/{admin_path}/server/backup             # Backup/restore
-/{admin_path}/server/updates            # Update management
-/{admin_path}/server/info               # Server information
-/{admin_path}/server/metrics            # Metrics dashboard
-/{admin_path}/server/network/           # Network settings
-/{admin_path}/server/network/tor        # Tor configuration
-/{admin_path}/server/network/geoip      # GeoIP settings
-/{admin_path}/server/security/          # Security settings
-/{admin_path}/server/security/auth      # Authentication config
-/{admin_path}/server/security/tokens    # API token management
-/{admin_path}/server/security/firewall  # Firewall rules
-/{admin_path}/server/users/             # User management (if multi-user)
-/{admin_path}/server/orgs/              # Org management (if orgs enabled)
-/{admin_path}/server/cluster/           # Cluster management (if clustering)
-/{admin_path}/server/agents/            # Agent management (if agents)
+/server/{admin_path}/                          # Admin root (dashboard)
+/server/{admin_path}/{admin_username}/         # Admin's own account root
+/server/{admin_path}/{admin_username}/profile  # Admin's own profile
+/server/{admin_path}/{admin_username}/preferences   # Admin's own preferences/settings
+/server/{admin_path}/{admin_username}/notifications # Admin's own notifications
+/server/{admin_path}/config/                   # Server management (EVERYTHING ELSE)
+/server/{admin_path}/config/setup              # Initial setup wizard
+/server/{admin_path}/config/settings           # Server settings
+/server/{admin_path}/config/ssl                # SSL/TLS configuration
+/server/{admin_path}/config/email              # Email configuration
+/server/{admin_path}/config/scheduler          # Scheduled tasks
+/server/{admin_path}/config/logs               # Server logs
+/server/{admin_path}/config/logs/audit         # Audit logs
+/server/{admin_path}/config/backup             # Backup/restore
+/server/{admin_path}/config/updates            # Update management
+/server/{admin_path}/config/info               # Server information
+/server/{admin_path}/config/metrics            # Metrics dashboard
+/server/{admin_path}/config/network/           # Network settings
+/server/{admin_path}/config/network/tor        # Tor configuration
+/server/{admin_path}/config/network/geoip      # GeoIP settings
+/server/{admin_path}/config/security/          # Security settings
+/server/{admin_path}/config/security/auth      # Authentication config and provider overview
+/server/{admin_path}/config/security/auth/oidc # OIDC provider management
+/server/{admin_path}/config/security/auth/ldap # LDAP provider management
+/server/{admin_path}/config/security/tokens    # API token management
+/server/{admin_path}/config/security/firewall  # Firewall rules
+/server/{admin_path}/config/users/             # User management (if multi-user)
+/server/{admin_path}/config/orgs/              # Org management (if orgs enabled)
+/server/{admin_path}/config/cluster/           # Cluster management (if clustering)
+/server/{admin_path}/config/agents/            # Agent management (if agents)
 ```
 
 ### Route Hierarchy Rules
 
 | Rule | Description |
 |------|-------------|
-| **`/{admin_path}/` root** | Dashboard ONLY |
-| **`/{admin_path}/profile`** | Admin's OWN profile (not server management) |
-| **`/{admin_path}/preferences`** | Admin's OWN preferences (not server settings) |
-| **`/{admin_path}/notifications`** | Admin's OWN notifications |
-| **`/{admin_path}/server/*`** | ALL server management goes here |
-| **No other direct children** | ONLY profile/preferences/notifications under `/{admin_path}/` |
+| **`/server/{admin_path}/` root** | Dashboard ONLY |
+| **`/server/{admin_path}/{admin_username}/*`** | Admin's OWN account/profile/preferences/notifications only |
+| **`/server/{admin_path}/config/*`** | ALL server management goes here |
+| **No other direct children** | ONLY `{admin_username}` and `config` under `/server/{admin_path}/` |
 
 ### What Goes Where
 
 | Route | Purpose | Example |
 |-------|---------|---------|
-| `/{admin_path}/` | Dashboard overview | System status, quick stats |
-| `/{admin_path}/profile` | Admin's personal account | Change own password, 2FA |
-| `/{admin_path}/preferences` | Admin's UI preferences | Theme, language, timezone |
-| `/{admin_path}/server/*` | **EVERYTHING server-related** | Config, users, logs, etc. |
+| `/server/{admin_path}/` | Dashboard overview | System status, quick stats |
+| `/server/{admin_path}/{admin_username}/profile` | Admin's personal account | Change own password, 2FA |
+| `/server/{admin_path}/{admin_username}/preferences` | Admin's UI preferences | Theme, language, timezone |
+| `/server/{admin_path}/config/*` | **EVERYTHING server-related** | Config, users, logs, etc. |
 
 ### INVALID Routes (NEVER DO THIS)
 
 ```
 # WRONG - Server management at admin root level
-/{admin_path}/settings          # ✗ WRONG - use /{admin_path}/server/settings
-/{admin_path}/users             # ✗ WRONG - use /{admin_path}/server/users
-/{admin_path}/logs              # ✗ WRONG - use /{admin_path}/server/logs
-/{admin_path}/security          # ✗ WRONG - use /{admin_path}/server/security
-/{admin_path}/email             # ✗ WRONG - use /{admin_path}/server/email
-/{admin_path}/tor               # ✗ WRONG - use /{admin_path}/server/network/tor
-/{admin_path}/tokens            # ✗ WRONG - use /{admin_path}/server/security/tokens
-/{admin_path}/agents            # ✗ WRONG - use /{admin_path}/server/agents
-/{admin_path}/cluster           # ✗ WRONG - use /{admin_path}/server/cluster
+/server/{admin_path}/settings          # ✗ WRONG - use /server/{admin_path}/config/settings
+/server/{admin_path}/users             # ✗ WRONG - use /server/{admin_path}/config/users
+/server/{admin_path}/logs              # ✗ WRONG - use /server/{admin_path}/config/logs
+/server/{admin_path}/security          # ✗ WRONG - use /server/{admin_path}/config/security
+/server/{admin_path}/email             # ✗ WRONG - use /server/{admin_path}/config/email
+/server/{admin_path}/tor               # ✗ WRONG - use /server/{admin_path}/config/network/tor
+/server/{admin_path}/tokens            # ✗ WRONG - use /server/{admin_path}/config/security/tokens
+/server/{admin_path}/agents            # ✗ WRONG - use /server/{admin_path}/config/agents
+/server/{admin_path}/cluster           # ✗ WRONG - use /server/{admin_path}/config/cluster
 
 # CORRECT
-/{admin_path}/profile           # ✓ Admin's own profile
-/{admin_path}/preferences       # ✓ Admin's own preferences
-/{admin_path}/server/settings   # ✓ Server settings
-/{admin_path}/server/users      # ✓ User management
+/server/{admin_path}/{admin_username}/profile      # ✓ Admin's own profile
+/server/{admin_path}/{admin_username}/preferences  # ✓ Admin's own preferences
+/server/{admin_path}/config/settings   # ✓ Server settings
+/server/{admin_path}/config/users      # ✓ User management
 ```
 
 ### API Route Hierarchy (Same Pattern)
 
 ```
-/api/{api_version}/{admin_path}/                         # Admin API root
-/api/{api_version}/{admin_path}/profile                  # Admin's own profile
-/api/{api_version}/{admin_path}/preferences              # Admin's own preferences
-/api/{api_version}/{admin_path}/server/                  # Server management API
-/api/{api_version}/{admin_path}/server/settings          # Server settings
-/api/{api_version}/{admin_path}/server/users             # User management
-/api/{api_version}/{admin_path}/server/agents            # Agent management
+/api/{api_version}/server/{admin_path}/                         # Admin API root
+/api/{api_version}/server/{admin_path}/{admin_username}/profile       # Admin's own profile
+/api/{api_version}/server/{admin_path}/{admin_username}/preferences   # Admin's own preferences
+/api/{api_version}/server/{admin_path}/{admin_username}/notifications # Admin's own notifications
+/api/{api_version}/server/{admin_path}/config/                  # Server management API
+/api/{api_version}/server/{admin_path}/config/setup             # Setup flow
+/api/{api_version}/server/{admin_path}/config/settings          # Server settings
+/api/{api_version}/server/{admin_path}/config/users             # User management
+/api/{api_version}/server/{admin_path}/config/agents            # Agent management
 ```
 
 ### Route Conflict Prevention
@@ -27990,39 +28772,42 @@ server:
 ```go
 // Admin route hierarchy validation
 var validAdminRootPaths = map[string]bool{
-    "":              true,  // Dashboard (/{admin_path}/)
-    "profile":       true,  // Admin's own profile
-    "preferences":   true,  // Admin's own preferences
-    "notifications": true,  // Admin's own notifications
-    "server":        true,  // Server management (has sub-routes)
+    "":       true,  // Dashboard (/server/{admin_path}/)
+    "config": true,  // Server management (has sub-routes)
 }
 
 func validateAdminRoute(path string) error {
-    // Extract first segment after /{admin_path}/
+    // Extract first segment after /server/{admin_path}/
     parts := strings.Split(strings.Trim(path, "/"), "/")
     if len(parts) == 0 {
         return nil // Root path is OK
     }
 
     firstSegment := parts[0]
-    if !validAdminRootPaths[firstSegment] {
-        return fmt.Errorf("invalid admin route: /%s/* - must use /server/* for server management", firstSegment)
+    if validAdminRootPaths[firstSegment] {
+        return nil
     }
-    return nil
+
+    // Otherwise the first segment must be the current admin's username.
+    if firstSegment == currentAdminUsername {
+        return nil
+    }
+
+    return fmt.Errorf("invalid admin route: /%s/* - use /server/{admin_path}/{admin_username}/* for admin self routes or /server/{admin_path}/config/* for server management", firstSegment)
 }
 ```
 
 ### Why This Structure?
 
 1. **Clear separation**: Admin's personal settings vs server management
-2. **No conflicts**: Fixed set of root-level paths prevents collisions
+2. **No conflicts**: Only `config` and `{admin_username}` live under the admin root
 3. **Scalability**: All new server features go under `/server/*`
 4. **Predictability**: Developers know where to add new routes
-5. **Security**: Easy to audit - only 4 valid root-level paths
+5. **Security**: Easy to audit - fixed namespace under `/server`
 
 ## Configurable Admin Path
 
-**The `/admin` path can be changed for security (obscurity).**
+**The default `/server/admin` admin root can be changed for security (obscurity).**
 
 ### Configuration
 
@@ -28031,8 +28816,8 @@ func validateAdminRoute(path string) error {
 | `server.admin_path` | `admin` | Path segment for admin panel (no leading slash) |
 
 **When changed, ALL admin routes update:**
-- `/admin/**` → `/{admin_path}/**`
-- `/api/{api_version}/{admin_path}/**` → `/api/{api_version}/{admin_path}/**`
+- `/server/admin/**` → `/server/{admin_path}/**`
+- `/api/{api_version}/server/admin/**` → `/api/{api_version}/server/{admin_path}/**`
 
 ### Validation Rules
 
@@ -28054,7 +28839,12 @@ func validateAdminPath(newPath string, router *mux.Router) error {
     // Normalize first
     newPath = normalizePath(newPath)
     // 1. Check reserved paths
-    reserved := []string{"api", "static", "assets", "health", "version", "metrics", ".well-known"}
+    reserved := []string{
+        "api", "health", "healthz", "metrics", "version", ".well-known",
+        "about", "privacy", "contact", "help", "terms",
+        "docs", "auth", "security",
+        "static", "assets",
+    }
     for _, r := range reserved {
         if newPath == r {
             return fmt.Errorf("'%s' is a reserved path", newPath)
@@ -28075,7 +28865,7 @@ func validateAdminPath(newPath string, router *mux.Router) error {
 
 ### WebUI Change Flow
 
-**When admin path changed via WebUI (`/{admin_path}/server/settings`):**
+**When admin path changed via WebUI (`/server/{admin_path}/config/settings`):**
 
 ```
 1. User submits new admin path
@@ -28092,7 +28882,7 @@ func validateAdminPath(newPath string, router *mux.Router) error {
 **Frontend JavaScript:**
 ```javascript
 async function changeAdminPath(newPath) {
-    const response = await fetch(`/api/{api_version}/{admin_path}/server/settings`, {
+    const response = await fetch(`/api/{api_version}/server/{admin_path}/config/settings`, {
         method: 'PATCH',
         body: JSON.stringify({ admin_path: newPath })
     });
@@ -28104,7 +28894,7 @@ async function changeAdminPath(newPath) {
         // Wait for server reload
         await waitForServerReady();
         // Redirect to new admin path
-        window.location.href = `/${data.new_admin_path}/dashboard`;
+        window.location.href = `/server/${data.new_admin_path}`;
     } else {
         showError(await response.json());
     }
@@ -28286,13 +29076,13 @@ func RegisterAdminRoutes(r *mux.Router) {
 | Icons | Each section has icon for quick recognition |
 | Mobile | Hamburger menu, slide-out drawer |
 
-## /admin (Web Interface)
+## /server/{admin_path} (Web Interface)
 
 ### Authentication
 
 | Feature | Description |
 |---------|-------------|
-| Login page | `/{admin_path}` (when not logged in) |
+| Login page | `/server/{admin_path}` (when not logged in) |
 | Login form | Username/password, centered card |
 | Session | Cookie-based (30 days default, configurable) |
 | CSRF | Protection on all forms |
@@ -28312,8 +29102,8 @@ func RegisterAdminRoutes(r *mux.Router) {
 | **Scope** | Server-wide administration | Own account and data only |
 | **Storage** | `admins` table | `users` table |
 | **Required** | **YES - all projects** | **OPTIONAL** (Multi-User feature) |
-| **Login** | `/auth/login` → `/admin/*` | `/auth/login` → `/users/*` |
-| **Access** | Admin panel (`/admin/*`) | User routes (`/users/*`) |
+| **Login** | `/server/auth/login` → `/server/{admin_path}/*` | `/server/auth/login` → `/users/*` |
+| **Access** | Admin panel (`/server/{admin_path}/*`) | User routes (`/users/*`) |
 | **Created by** | Setup wizard, existing admin, or OIDC/LDAP | Registration or admin invitation |
 
 **Important:** Server Admins and regular users are completely separate account types stored in different database tables. A Server Admin is NOT a "privileged user" - they are a different kind of account entirely.
@@ -28322,10 +29112,10 @@ func RegisterAdminRoutes(r *mux.Router) {
 
 | Route | Server Admin Access |
 |-------|---------------------|
-| `/{admin_path}/*` | Full access |
-| `/users/*` | NO - treated as guest (redirect to `/{admin_path}`) |
-| `/auth/login` | Login page |
-| `/auth/logout` | Logout |
+| `/server/{admin_path}/*` | Full access |
+| `/users/*` | NO - treated as guest (redirect to `/server/{admin_path}`) |
+| `/server/auth/login` | Login page |
+| `/server/auth/logout` | Logout |
 | Public routes (`/`, `/server/*`, etc.) | Guest view (no user-specific content) |
 
 **Admin credentials are stored in `users.db` (`admins` table), NOT in config file.**
@@ -28350,7 +29140,7 @@ func RegisterAdminRoutes(r *mux.Router) {
 
 ```
 ╭───────────────────────────────────────────────────────────╮
-│  🚀 CASPBX · 📦 {projectversion}                   │
+│  🚀 {PROJECT_NAME} · 📦 {projectversion}                   │
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: {app_mode}                           │
 ├───────────────────────────────────────────────────────────┤
@@ -28365,7 +29155,7 @@ func RegisterAdminRoutes(r *mux.Router) {
 ├───────────────────────────────────────────────────────────┤
 │  Setup Token: {setup_token}                               │
 │                                                           │
-│  Go to {proto}://{fqdn}/{admin_path}/server/setup         │
+│  Go to {proto}://{fqdn}/server/{admin_path}/config/setup         │
 │  and enter this token to complete setup.                  │
 │                                                           │
 │  This token will only be shown ONCE.                      │
@@ -28379,21 +29169,23 @@ func RegisterAdminRoutes(r *mux.Router) {
 
 **The app is FULLY FUNCTIONAL before completing the setup wizard.**
 
+**This does NOT relax security.** Pre-setup public surfaces still follow the same public-endpoint, sanitization, rate-limit, TLS, auth, and secret-handling rules as the fully configured app.
+
 | Feature | Available Before Setup? |
 |---------|------------------------|
 | Public API endpoints | ✓ Yes |
 | Public web pages | ✓ Yes |
-| Health checks (`/healthz`) | ✓ Yes |
+| Health checks (`/server/healthz`) | ✓ Yes |
 | OpenAPI docs (`/server/docs/swagger`) | ✓ Yes |
 | GraphQL (if applicable) | ✓ Yes |
-| Admin panel (`/admin`) | ✓ Yes (requires setup token) |
+| Admin panel (`/server/{admin_path}`) | ✓ Yes (requires setup token) |
 | Email features | ✓ Yes (if SMTP auto-detected) |
 | Scheduled tasks | ✓ Yes (with defaults) |
 
 **What Setup Wizard Provides:**
 - Custom admin username/password (instead of generated)
 - Customize app name/branding
-- Configure optional features (SSL, multi-user) - Note: Tor is auto-enabled if binary found, not configurable
+- Review HTTPS/certificate configuration if customization is needed, and enable optional features like multi-user - Note: Tor is auto-enabled if binary found, not configurable
 - Receive API token for programmatic access
 
 ### Setup Flow
@@ -28403,11 +29195,11 @@ On first run, a one-time setup token is generated and displayed in console. Admi
 | Step | Action |
 |------|--------|
 | 1 | Server generates one-time setup token (displayed in console ONCE) |
-| 2 | User navigates to `/admin` |
+| 2 | User navigates to `/server/{admin_path}` |
 | 3 | User enters setup token |
-| 4 | Redirect to `/{admin_path}/server/setup` (setup wizard) |
+| 4 | Redirect to `/server/{admin_path}/config/setup` (setup wizard) |
 
-**Setup Wizard Steps (`/{admin_path}/server/setup`):**
+**Setup Wizard Steps (`/server/{admin_path}/config/setup`):**
 
 **Step 1: Create Admin Account**
 | Field | Default | Notes |
@@ -28438,7 +29230,7 @@ On first run, a one-time setup token is generated and displayed in console. Admi
 **Step 5: Optional Services**
 | Setting | Description |
 |---------|-------------|
-| Enable SSL | Configure HTTPS |
+| Configure HTTPS / certificate source | Review or customize the default secure HTTPS path if needed |
 | Enable Multi-User | Enable Regular User accounts (PART 34) |
 
 **Step 6: Complete**
@@ -28446,7 +29238,7 @@ On first run, a one-time setup token is generated and displayed in console. Admi
 |--------|-------|
 | Save configuration | Write to `server.yml` |
 | Mark setup complete | Setup token invalidated |
-| Redirect to `/admin` | Logged in as admin |
+| Redirect to `/server/{admin_path}` | Logged in as admin |
 
 **Setup Token Rules:**
 - Generated on first run ONLY
@@ -28461,7 +29253,7 @@ On first run, a one-time setup token is generated and displayed in console. Admi
 
 | Method | Description |
 |--------|-------------|
-| **Manual creation** | Primary admin invites additional admin accounts via `/{admin_path}/server/admins` |
+| **Manual creation** | Primary admin invites additional admin accounts via `/server/{admin_path}/config/admins` |
 | **OIDC/LDAP group mapping** | Map external identity provider groups to Server Admin role |
 
 ### Admin Hierarchy
@@ -28482,7 +29274,7 @@ On first run, a one-time setup token is generated and displayed in console. Admi
 ### Admin Invite Flow
 
 ```
-Admin Panel (/{admin_path}/server/admins)
+Admin Panel (/server/{admin_path}/config/admins)
 ┌─────────────────────────────────────────────────────────────┐
 │  Server Administrators                                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -28514,7 +29306,7 @@ Admin clicks "Invite New Admin"
 │                                                             │
 │  Invite URL (share with new admin):                         │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │ https://app.example.com/auth/invite/server/abc123...│    │
+│  │ https://app.example.com/server/auth/invite/server/abc123...│    │
 │  └─────────────────────────────────────────────────────┘    │
 │  [Copy URL]                                                 │
 │                                                             │
@@ -28546,9 +29338,9 @@ Admin clicks "Invite New Admin"
 **Local Sync Fields (`admins` table):**
 | Field | Description |
 |-------|-------------|
-| `username` | From OIDC/LDAP claim |
+| `username` | Final local admin username (claim-derived, admin-chosen on first login, or from the previously linked local admin record) |
 | `password` | Argon2id hash (synced or set locally) |
-| `source` | `local`, `oidc:{provider}`, `ldap` |
+| `source` | `local`, `oidc:{provider}`, `ldap:{provider}` |
 | `external_id` | Provider's user ID |
 | `groups` | JSON array of cached group memberships |
 | `last_sync` | Last successful sync timestamp |
@@ -28560,6 +29352,8 @@ Admin clicks "Invite New Admin"
 | OIDC/LDAP unavailable | Use cached local credentials |
 | User removed from admin group | Next successful OIDC/LDAP login revokes admin |
 | Provider permanently down | Local credentials continue to work |
+
+**Matching rule:** for OIDC/LDAP-backed admins, the stable identity key is `external_id` + provider source, not mutable username/email.
 
 ## Server Admin Security
 
@@ -28593,7 +29387,7 @@ Admin clicks "Invite New Admin"
 
 | Feature | Description |
 |---------|-------------|
-| **Registration** | Admin can register multiple passkeys at `/{admin_path}/profile/security` |
+| **Registration** | Admin can register multiple passkeys at `/server/{admin_path}/{admin_username}/profile/security` |
 | **Login** | Passkey can be used as primary login or as 2FA |
 | **Device-bound** | Each passkey tied to specific device/authenticator |
 | **Naming** | Admin names each passkey for identification |
@@ -28604,7 +29398,7 @@ Admin clicks "Invite New Admin"
 
 | Feature | Description |
 |---------|-------------|
-| **Setup** | QR code + manual entry key at `/{admin_path}/profile/security` |
+| **Setup** | QR code + manual entry key at `/server/{admin_path}/{admin_username}/profile/security` |
 | **Apps supported** | Any TOTP app (Google Authenticator, Authy, 1Password, etc.) |
 | **Backup codes** | 10 one-time recovery codes generated on setup |
 | **Regenerate** | Can regenerate backup codes (invalidates old ones) |
@@ -28694,7 +29488,7 @@ Admin clicks "Invite New Admin"
 - SMTP status shown in notification preferences
 - See PART 18: EMAIL & NOTIFICATIONS for SMTP configuration
 
-#### Admin Appearance Settings (`/{admin_path}/profile/preferences`)
+#### Admin Appearance Settings (`/server/{admin_path}/{admin_username}/preferences`)
 
 **Server admins can customize their admin panel appearance.**
 
@@ -28736,7 +29530,7 @@ Admin clicks "Invite New Admin"
 ```
 
 **Admin theme applies to:**
-- Admin panel (`/admin/*`)
+- Admin panel (`/server/{admin_path}/*`)
 - Admin-accessible Swagger UI
 - Admin-accessible GraphiQL
 
@@ -28755,7 +29549,7 @@ Admin clicks "Invite New Admin"
 | Total admin count (number only) | Other admin 2FA secrets |
 | | Other admin session data |
 
-**Admin Panel (`/{admin_path}/server/admins`):**
+**Admin Panel (`/server/{admin_path}/config/admins`):**
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Server Administrators                                      │
@@ -28831,7 +29625,7 @@ Admin Panel Header:
 - Delete the additional admin account entirely
 - Re-invite them (they set up fresh credentials)
 
-### Login Page (`/admin`)
+### Login Page (`/server/{admin_path}`)
 
 ```
 ┌─────────────────────────────────────────┐
@@ -28861,7 +29655,7 @@ Admin Panel Header:
 - Version number at bottom (small)
 - No "Forgot password" (admin resets via CLI if needed)
 
-### Dashboard (`/{admin_path}/dashboard`)
+### Dashboard (`/server/{admin_path}`)
 
 **Overview of server status and system resources at a glance.**
 
@@ -28923,31 +29717,31 @@ Admin Panel Header:
 
 | Route | Page | Description |
 |-------|------|-------------|
-| `/{admin_path}` | Login | Login form (if not authenticated) |
-| `/{admin_path}/dashboard` | Dashboard | Overview, stats, quick actions |
-| `/{admin_path}/server/settings` | Server Settings | Port, mode, FQDN, etc. |
-| `/{admin_path}/server/branding` | Branding | Title, logo, favicon, colors |
-| `/{admin_path}/server/ssl` | SSL/TLS | Certificates, Let's Encrypt |
-| `/{admin_path}/server/scheduler` | Scheduler | View/edit scheduled tasks |
-| `/{admin_path}/server/email` | Email | SMTP settings, templates |
-| `/{admin_path}/server/logs` | Logs | View access, error, audit logs |
-| `/{admin_path}/server/security/auth` | Authentication | Password, MFA, sessions |
-| `/{admin_path}/server/security/tokens` | API Tokens | Generate, revoke tokens |
-| `/{admin_path}/server/security/ratelimit` | Rate Limiting | Configure rate limits |
-| `/{admin_path}/server/security/firewall` | Firewall | IP allow/block lists |
-| `/{admin_path}/server/security/allowlist` | Allowlist | Trusted IPs (bypass blocklist/ratelimit/geoip) |
-| `/{admin_path}/server/network/tor` | Tor | View .onion address, status (auto-enabled if installed) |
-| `/{admin_path}/server/network/geoip` | GeoIP | Country blocking, database updates |
-| `/{admin_path}/server/network/blocklists` | Blocklists | IP/domain blocklists |
-| `/{admin_path}/server/moderation/users` | Users | User moderation (if multi-user) |
-| `/{admin_path}/server/users/invites` | Invites | Invite codes (if multi-user) |
-| `/{admin_path}/server/backup` | Backup | Create/restore backups |
-| `/{admin_path}/server/maintenance` | Maintenance | Maintenance mode |
-| `/{admin_path}/server/updates` | Updates | Check/apply updates |
-| `/{admin_path}/server/info` | Server Info | Version, environment, deps |
-| `/{admin_path}/server/cluster/nodes` | Nodes | Cluster node management |
-| `/{admin_path}/server/cluster/add` | Add Node | Generate join token |
-| `/{admin_path}/help` | Help | Documentation links |
+| `/server/{admin_path}` | Login | Login form (if not authenticated) |
+| `/server/{admin_path}` | Dashboard | Overview, stats, quick actions |
+| `/server/{admin_path}/config/settings` | Server Settings | Port, mode, FQDN, etc. |
+| `/server/{admin_path}/config/branding` | Branding | Title, logo, favicon, colors |
+| `/server/{admin_path}/config/ssl` | SSL/TLS | Certificates, Let's Encrypt |
+| `/server/{admin_path}/config/scheduler` | Scheduler | View/edit scheduled tasks |
+| `/server/{admin_path}/config/email` | Email | SMTP settings, templates |
+| `/server/{admin_path}/config/logs` | Logs | View access, error, audit logs |
+| `/server/{admin_path}/config/security/auth` | Authentication | Password, MFA, sessions, OIDC/LDAP provider overview |
+| `/server/{admin_path}/config/security/tokens` | API Tokens | Generate, revoke tokens |
+| `/server/{admin_path}/config/security/ratelimit` | Rate Limiting | Configure rate limits |
+| `/server/{admin_path}/config/security/firewall` | Firewall | IP allow/block lists |
+| `/server/{admin_path}/config/security/allowlist` | Allowlist | Trusted IPs (bypass blocklist/ratelimit/geoip) |
+| `/server/{admin_path}/config/network/tor` | Tor | View .onion address, status (auto-enabled if installed) |
+| `/server/{admin_path}/config/network/geoip` | GeoIP | Country blocking, database updates |
+| `/server/{admin_path}/config/network/blocklists` | Blocklists | IP/domain blocklists |
+| `/server/{admin_path}/config/moderation/users` | Users | User moderation (if multi-user) |
+| `/server/{admin_path}/config/users/invites` | Invites | Invite codes (if multi-user) |
+| `/server/{admin_path}/config/backup` | Backup | Create/restore backups |
+| `/server/{admin_path}/config/maintenance` | Maintenance | Maintenance mode |
+| `/server/{admin_path}/config/updates` | Updates | Check/apply updates |
+| `/server/{admin_path}/config/info` | Server Info | Version, environment, deps |
+| `/server/{admin_path}/config/cluster/nodes` | Nodes | Cluster node management |
+| `/server/{admin_path}/config/cluster/add` | Add Node | Generate join token |
+| `/server/{admin_path}/help` | Help | Documentation links |
 
 ### Settings Page Layout
 
@@ -29025,7 +29819,7 @@ Admin Panel Header:
 
 ### Server Settings Field Definitions
 
-**`/{admin_path}/server/settings` - All fields with control types:**
+**`/server/{admin_path}/config/settings` - All fields with control types:**
 
 #### General Section
 
@@ -29043,11 +29837,11 @@ Admin Panel Header:
 | `daemonize` | Toggle | Off | ⚠️ Yes | Detach from terminal on start |
 | `pidfile` | Toggle | On | ⚠️ Yes | Create PID file |
 
-#### Branding Section (`/{admin_path}/server/branding`)
+#### Branding Section (`/server/{admin_path}/config/branding`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
-| `title` | Text | `caspbx` | No | App display name |
+| `title` | Text | `{project_name}` | No | App display name |
 | `tagline` | Text | (empty) | No | Short slogan |
 | `description` | Textarea | (empty) | No | SEO/about description |
 | `logo` | File | (none) | No | Logo image upload |
@@ -29064,7 +29858,7 @@ Admin Panel Header:
 | `og_image` | File | (none) | No | OpenGraph image |
 | `twitter_handle` | Text | (empty) | No | Twitter @handle |
 
-#### Security Section (`/{admin_path}/server/security`)
+#### Security Section (`/server/{admin_path}/config/security`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29100,7 +29894,7 @@ Admin Panel Header:
 | `allowlist` | Tags | (empty) | No | Trusted IPs — bypass blocklists, rate limits, GeoIP (not auth) |
 | `blocklist` | Tags | (empty) | No | IPs always blocked |
 
-#### SSL/TLS Section (`/{admin_path}/server/ssl`)
+#### SSL/TLS Section (`/server/{admin_path}/config/ssl`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29113,7 +29907,7 @@ Admin Panel Header:
 | `ssl.letsencrypt.staging` | Toggle | Off | No | Use LE staging server |
 | `ssl.letsencrypt.challenge` | Dropdown | `http-01` | No | Challenge type |
 
-#### Authentication Section (`/{admin_path}/server/security/auth`)
+#### Authentication Section (`/server/{admin_path}/config/security/auth`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29125,8 +29919,12 @@ Admin Panel Header:
 | `password.require_uppercase` | Toggle | On | No | Require uppercase |
 | `password.require_number` | Toggle | On | No | Require number |
 | `password.require_special` | Toggle | Off | No | Require special char |
+| `auth.oidc.enabled` | Toggle | Off | No | Enable OIDC login support |
+| `auth.oidc.providers` | Provider table | (empty) | No | Add/edit/remove/test OIDC providers |
+| `auth.ldap.enabled` | Toggle | Off | No | Enable LDAP login support |
+| `auth.ldap.providers` | Provider table | (empty) | No | Add/edit/remove/test LDAP providers |
 
-#### Backup Section (`/{admin_path}/server/backup`)
+#### Backup Section (`/server/{admin_path}/config/backup`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29140,7 +29938,7 @@ Admin Panel Header:
 | `backup.encryption.enabled` | Toggle | Off | No | Encrypt backups |
 | `backup.encryption.password` | Password | (none) | No | Encryption password |
 
-#### Email/SMTP Section (`/{admin_path}/server/email`)
+#### Email/SMTP Section (`/server/{admin_path}/config/email`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29153,7 +29951,7 @@ Admin Panel Header:
 | `from.email` | Text | `no-reply@{fqdn}` | No | Sender email |
 | `[Test Connection]` | Button | - | - | Send test email |
 
-#### Notifications Section (`/{admin_path}/server/notifications`)
+#### Notifications Section (`/server/{admin_path}/config/notifications`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29164,7 +29962,7 @@ Admin Panel Header:
 | `notifications.security_alerts` | Toggle | On | No | Security event alerts |
 | `notifications.update_available` | Toggle | On | No | New version available |
 
-#### Scheduler Section (`/{admin_path}/server/scheduler`)
+#### Scheduler Section (`/server/{admin_path}/config/scheduler`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29177,7 +29975,7 @@ Admin Panel Header:
 | - Next run | Readonly | timestamp | - | Next execution |
 | - `[Run Now]` | Button | - | - | Trigger immediately |
 
-#### URL Detection Section (`/{admin_path}/server/url`)
+#### URL Detection Section (`/server/{admin_path}/config/url`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29189,7 +29987,7 @@ Admin Panel Header:
 | Detected domains | Readonly | - | - | Currently detected FQDNs |
 | Inferred wildcard | Readonly | - | - | `*.example.com` if detected |
 
-#### Tor Section (`/{admin_path}/server/tor`) - *if tor installed*
+#### Tor Section (`/server/{admin_path}/config/tor`) - *if tor installed*
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29198,7 +29996,7 @@ Admin Panel Header:
 | `tor.status` | Readonly | - | - | Running/Stopped |
 | `[Copy Address]` | Button | - | - | Copy onion to clipboard |
 
-#### GeoIP Section (`/{admin_path}/server/network/geoip`)
+#### GeoIP Section (`/server/{admin_path}/config/network/geoip`)
 
 | Setting | Control | Default | Restart | Description |
 |---------|---------|---------|---------|-------------|
@@ -29209,7 +30007,7 @@ Admin Panel Header:
 | `geoip.allow_countries` | Tags | (empty) | No | Allow ONLY these countries (overrides deny) |
 | Database status | Readonly | - | - | Last update, size |
 
-#### Blocklists Section (`/{admin_path}/server/network/blocklists`)
+#### Blocklists Section (`/server/{admin_path}/config/network/blocklists`)
 
 **Transmission-style IP/domain blocklist management. Download, parse, and enforce external blocklists from configurable URLs.**
 
@@ -29413,20 +30211,20 @@ func BlocklistMiddleware(lookup *BlocklistLookup, cfg BlocklistConfig) func(http
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/network/blocklists` | GET | List all blocklist sources with stats |
-| `/api/{api_version}/{admin_path}/server/network/blocklists` | PATCH | Update blocklist settings (enabled, action, etc.) |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/sources` | POST | Add new blocklist source |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/sources/{name}` | PATCH | Update source (enable/disable, URL, format) |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/sources/{name}` | DELETE | Remove blocklist source |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/update` | POST | Trigger immediate update of all enabled sources |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/update/{name}` | POST | Trigger update of specific source |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/stats` | GET | Get aggregate blocklist statistics |
-| `/api/{api_version}/{admin_path}/server/network/blocklists/check/{ip}` | GET | Check if an IP is in any blocklist |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists` | GET | List all blocklist sources with stats |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists` | PATCH | Update blocklist settings (enabled, action, etc.) |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/sources` | POST | Add new blocklist source |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/sources/{name}` | PATCH | Update source (enable/disable, URL, format) |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/sources/{name}` | DELETE | Remove blocklist source |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/update` | POST | Trigger immediate update of all enabled sources |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/update/{name}` | POST | Trigger update of specific source |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/stats` | GET | Get aggregate blocklist statistics |
+| `/api/{api_version}/server/{admin_path}/config/network/blocklists/check/{ip}` | GET | Check if an IP is in any blocklist |
 
 **API Response Examples:**
 
 ```json
-// GET /api/{api_version}/{admin_path}/server/network/blocklists
+// GET /api/{api_version}/server/{admin_path}/config/network/blocklists
 {
   "enabled": true,
   "action": "reject",
@@ -29457,7 +30255,7 @@ func BlocklistMiddleware(lookup *BlocklistLookup, cfg BlocklistConfig) func(http
   ]
 }
 
-// GET /api/{api_version}/{admin_path}/server/network/blocklists/check/1.2.3.4
+// GET /api/{api_version}/server/{admin_path}/config/network/blocklists/check/1.2.3.4
 {
   "ip": "1.2.3.4",
   "blocked": true,
@@ -29557,29 +30355,29 @@ func BlocklistMiddleware(lookup *BlocklistLookup, cfg BlocklistConfig) func(http
 | `blocklist.enabled` | Blocklists enabled/disabled | enabled, changed_by |
 | `blocklist.ip_blocked` | Request blocked by blocklist | ip, path, matched_list, matched_range |
 
-**CLI Commands (via `caspbx-cli --admin`):**
+**CLI Commands (via `{project_name}-cli --admin`):**
 
 ```bash
 # Update all blocklists now
-caspbx-cli --admin server blocklist update
+{project_name}-cli --admin server blocklist update
 
 # Update specific source
-caspbx-cli --admin server blocklist update --source level1
+{project_name}-cli --admin server blocklist update --source level1
 
 # List sources with stats
-caspbx-cli --admin server blocklist list
+{project_name}-cli --admin server blocklist list
 
 # Check if an IP is blocked
-caspbx-cli --admin server blocklist check 1.2.3.4
+{project_name}-cli --admin server blocklist check 1.2.3.4
 
 # Add a new source
-caspbx-cli --admin server blocklist add --name mylist --url https://example.com/list.gz
+{project_name}-cli --admin server blocklist add --name mylist --url https://example.com/list.gz
 
 # Remove a source
-caspbx-cli --admin server blocklist remove --name mylist
+{project_name}-cli --admin server blocklist remove --name mylist
 
 # Show aggregate stats
-caspbx-cli --admin server blocklist stats
+{project_name}-cli --admin server blocklist stats
 ```
 
 ### Control Type Guidelines
@@ -29601,7 +30399,7 @@ caspbx-cli --admin server blocklist stats
 | Read-only info | **Readonly** |
 | Trigger action | **Button** |
 
-### Log Viewer (`/{admin_path}/server/logs`)
+### Log Viewer (`/server/{admin_path}/config/logs`)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -29611,9 +30409,9 @@ caspbx-cli --admin server blocklist stats
 │  [Access ▼]  [Last 100 ▼]  [Search...        ]  [Auto-refresh: ON]     │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │ 2025-01-15 10:30:45  GET  /api/{api_version}/healthz 200  12ms  192.168.1.1│    │
+│  │ 2025-01-15 10:30:45  GET  /api/{api_version}/server/healthz 200  12ms  192.168.1.1│    │
 │  │ 2025-01-15 10:30:44  POST /api/{api_version}/data    201  45ms  192.168.1.2│    │
-│  │ 2025-01-15 10:30:43  GET  /healthz        200  2ms   192.168.1.1│    │
+│  │ 2025-01-15 10:30:43  GET  /server/healthz        200  2ms   192.168.1.1│    │
 │  │ 2025-01-15 10:30:42  GET  /api/{api_version}/users   401  5ms   10.0.0.50  │    │
 │  │ ...                                                              │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
@@ -29645,10 +30443,10 @@ caspbx-cli --admin server blocklist stats
 | `Ctrl+S` | Save current form |
 | `?` | Show shortcuts help |
 
-## /admin Authentication Flow
+## /server/{admin_path} Authentication Flow
 
 ```
-User visits /admin
+User visits /server/{admin_path}
        │
        ▼
 Check for valid admin session
@@ -29693,7 +30491,7 @@ Check for valid admin session
 | Aspect | Admin Session | User Session |
 |--------|---------------|--------------|
 | Cookie name | `admin_session` | `user_session` |
-| Valid routes | `/{admin_path}/**` only | `/**` except `/{admin_path}/**` |
+| Valid routes | `/server/{admin_path}/**` only | `/**` except `/server/{admin_path}/**` |
 | Stored in | `server.db` (admin_sessions) | `users.db` (user_sessions) |
 | Credentials | `admins` table | `users` table |
 | Default duration | 30 days | 7 days |
@@ -29721,7 +30519,7 @@ The admin panel MUST include a scheduler section with:
 - `monthly` - Once per month (configurable day/time)
 - `custom` - Cron expression
 
-## /api/{api_version}/{admin_path} (REST API)
+## /api/{api_version}/server/{admin_path} (REST API)
 
 ### Authentication
 
@@ -29729,144 +30527,149 @@ The admin panel MUST include a scheduler section with:
 
 **These admin API routes are ALWAYS available, regardless of whether Multi-User (PART 34) is implemented.**
 
-### Admin - Server (`/api/{api_version}/{admin_path}/server/`)
+### Admin - Server (`/api/{api_version}/server/{admin_path}/config/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/setup` | GET | Get setup status |
-| `/api/{api_version}/{admin_path}/server/setup/verify` | POST | Verify setup token |
-| `/api/{api_version}/{admin_path}/server/setup/account` | POST | Create admin account (Step 1) |
-| `/api/{api_version}/{admin_path}/server/setup/token` | POST | Generate API token (Step 2) |
-| `/api/{api_version}/{admin_path}/server/setup/config` | POST | Save server config (Step 3) |
-| `/api/{api_version}/{admin_path}/server/setup/security` | POST | Security settings (Step 4) |
-| `/api/{api_version}/{admin_path}/server/setup/services` | POST | Configure services (Step 5) |
-| `/api/{api_version}/{admin_path}/server/setup/complete` | POST | Complete setup wizard (Step 6) |
-| `/api/{api_version}/{admin_path}/server/settings` | GET | Get server settings |
-| `/api/{api_version}/{admin_path}/server/settings` | PATCH | Update server settings |
-| `/api/{api_version}/{admin_path}/server/status` | GET | Server status (detailed) |
-| `/api/{api_version}/{admin_path}/server/stats` | GET | Statistics |
-| `/api/{api_version}/{admin_path}/server/restart` | POST | Restart server |
+| `/api/{api_version}/server/{admin_path}/config/setup` | GET | Get setup status |
+| `/api/{api_version}/server/{admin_path}/config/setup/verify` | POST | Verify setup token |
+| `/api/{api_version}/server/{admin_path}/config/setup/account` | POST | Create admin account (Step 1) |
+| `/api/{api_version}/server/{admin_path}/config/setup/token` | POST | Generate API token (Step 2) |
+| `/api/{api_version}/server/{admin_path}/config/setup/config` | POST | Save server config (Step 3) |
+| `/api/{api_version}/server/{admin_path}/config/setup/security` | POST | Security settings (Step 4) |
+| `/api/{api_version}/server/{admin_path}/config/setup/services` | POST | Configure services (Step 5) |
+| `/api/{api_version}/server/{admin_path}/config/setup/complete` | POST | Complete setup wizard (Step 6) |
+| `/api/{api_version}/server/{admin_path}/config/settings` | GET | Get server settings |
+| `/api/{api_version}/server/{admin_path}/config/settings` | PATCH | Update server settings |
+| `/api/{api_version}/server/{admin_path}/config/status` | GET | Server status (detailed) |
+| `/api/{api_version}/server/{admin_path}/config/stats` | GET | Statistics |
+| `/api/{api_version}/server/{admin_path}/config/restart` | POST | Restart server |
 
-### Admin - Server Admins (`/api/{api_version}/{admin_path}/server/admins/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/admins` | GET | List Server Admins |
-| `/api/{api_version}/{admin_path}/server/admins/{id}` | GET | Get admin details |
-| `/api/{api_version}/{admin_path}/server/admins/{id}` | DELETE | Delete admin |
-| `/api/{api_version}/{admin_path}/server/admins/{id}/disable` | POST | Disable admin |
-| `/api/{api_version}/{admin_path}/server/admins/{id}/enable` | POST | Enable admin |
-| `/api/{api_version}/{admin_path}/server/admins/invite` | POST | Generate admin invite link |
-
-### Admin - Profile (`/api/{api_version}/{admin_path}/profile/`)
+### Admin - Server Admins (`/api/{api_version}/server/{admin_path}/config/admins/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/profile` | GET | Get admin profile |
-| `/api/{api_version}/{admin_path}/profile` | PATCH | Update admin profile |
-| `/api/{api_version}/{admin_path}/profile/password` | POST | Change admin password |
-| `/api/{api_version}/{admin_path}/profile/token` | GET | Get current API token (masked) |
-| `/api/{api_version}/{admin_path}/profile/token` | POST | Regenerate API token |
-| `/api/{api_version}/{admin_path}/profile/preferences` | GET | Get admin preferences (theme, notifications) |
-| `/api/{api_version}/{admin_path}/profile/preferences` | PATCH | Update admin preferences |
+| `/api/{api_version}/server/{admin_path}/config/admins` | GET | List Server Admins |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}` | GET | Get admin details |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}` | DELETE | Delete admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}/disable` | POST | Disable admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}/enable` | POST | Enable admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/invite` | POST | Generate admin invite link |
 
-### Admin - Branding (`/api/{api_version}/{admin_path}/server/branding/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/branding` | GET | Get branding settings |
-| `/api/{api_version}/{admin_path}/server/branding` | PATCH | Update branding |
-
-### Admin - SSL (`/api/{api_version}/{admin_path}/server/ssl/`)
+### Admin - Profile (`/api/{api_version}/server/{admin_path}/{admin_username}/profile/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/ssl` | GET | Get SSL settings |
-| `/api/{api_version}/{admin_path}/server/ssl` | PATCH | Update SSL settings |
-| `/api/{api_version}/{admin_path}/server/ssl/renew` | POST | Force certificate renewal |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile` | GET | Get admin profile |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile` | PATCH | Update admin profile |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/password` | POST | Change admin password |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/token` | GET | Get current API token (masked) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/token` | POST | Regenerate API token |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/preferences` | GET | Get admin preferences (theme, notifications) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/preferences` | PATCH | Update admin preferences |
 
-### Admin - Tor (`/api/{api_version}/{admin_path}/server/tor/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/tor` | GET | Get Tor status |
-| `/api/{api_version}/{admin_path}/server/tor` | PATCH | Update Tor settings |
-| `/api/{api_version}/{admin_path}/server/tor/regenerate` | POST | Regenerate .onion address |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | GET | Get vanity generation status |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | POST | Start vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | DELETE | Cancel vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity/apply` | POST | Apply vanity address |
-| `/api/{api_version}/{admin_path}/server/tor/import` | POST | Import external keys |
-
-### Admin - Web (`/api/{api_version}/{admin_path}/server/web/`)
+### Admin - Branding (`/api/{api_version}/server/{admin_path}/config/branding/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/web` | GET | Get web settings |
-| `/api/{api_version}/{admin_path}/server/web` | PATCH | Update web settings |
-| `/api/{api_version}/{admin_path}/server/web/robots` | GET | Get robots.txt config |
-| `/api/{api_version}/{admin_path}/server/web/robots` | PATCH | Update robots.txt |
-| `/api/{api_version}/{admin_path}/server/web/robots/preview` | GET | Preview robots.txt |
-| `/api/{api_version}/{admin_path}/server/web/security` | GET | Get security.txt config |
-| `/api/{api_version}/{admin_path}/server/web/security` | PATCH | Update security.txt |
-| `/api/{api_version}/{admin_path}/server/web/security/preview` | GET | Preview security.txt |
+| `/api/{api_version}/server/{admin_path}/config/branding` | GET | Get branding settings |
+| `/api/{api_version}/server/{admin_path}/config/branding` | PATCH | Update branding |
 
-### Admin - Pages (`/api/{api_version}/{admin_path}/server/pages/`)
+### Admin - SSL (`/api/{api_version}/server/{admin_path}/config/ssl/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/pages` | GET | Get all page settings |
-| `/api/{api_version}/{admin_path}/server/pages/about` | GET | Get about page content |
-| `/api/{api_version}/{admin_path}/server/pages/about` | PATCH | Update about page |
-| `/api/{api_version}/{admin_path}/server/pages/privacy` | GET | Get privacy policy |
-| `/api/{api_version}/{admin_path}/server/pages/privacy` | PATCH | Update privacy policy |
-| `/api/{api_version}/{admin_path}/server/pages/contact` | GET | Get contact page settings |
-| `/api/{api_version}/{admin_path}/server/pages/contact` | PATCH | Update contact page |
-| `/api/{api_version}/{admin_path}/server/pages/help` | GET | Get help page content |
-| `/api/{api_version}/{admin_path}/server/pages/help` | PATCH | Update help page |
+| `/api/{api_version}/server/{admin_path}/config/ssl` | GET | Get SSL settings |
+| `/api/{api_version}/server/{admin_path}/config/ssl` | PATCH | Update SSL settings |
+| `/api/{api_version}/server/{admin_path}/config/ssl/renew` | POST | Force certificate renewal |
 
-### Admin - Email (`/api/{api_version}/{admin_path}/server/email/`)
+### Admin - Tor (`/api/{api_version}/server/{admin_path}/config/tor/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/email` | GET | Get email settings |
-| `/api/{api_version}/{admin_path}/server/email` | PATCH | Update email settings |
-| `/api/{api_version}/{admin_path}/server/email/test` | POST | Send test email |
-| `/api/{api_version}/{admin_path}/server/email/templates` | GET | List email templates |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}` | GET | Get template |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}` | PUT | Update template |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}/reset` | POST | Reset to default |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}/preview` | POST | Preview template |
+| `/api/{api_version}/server/{admin_path}/config/tor` | GET | Get Tor status |
+| `/api/{api_version}/server/{admin_path}/config/tor` | PATCH | Update Tor settings |
+| `/api/{api_version}/server/{admin_path}/config/tor/regenerate` | POST | Regenerate .onion address |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | GET | Get vanity generation status |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | POST | Start vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | DELETE | Cancel vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity/apply` | POST | Apply vanity address |
+| `/api/{api_version}/server/{admin_path}/config/tor/import` | POST | Import external keys |
 
-### Admin - Scheduler (`/api/{api_version}/{admin_path}/server/scheduler/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/scheduler` | GET | List scheduled tasks |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | GET | Get task details |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | PATCH | Update task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/run` | POST | Run task now |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/enable` | POST | Enable task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/disable` | POST | Disable task |
-
-### Admin - Backup (`/api/{api_version}/{admin_path}/server/backup/`)
+### Admin - Web (`/api/{api_version}/server/{admin_path}/config/web/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/backup` | GET | List backups |
-| `/api/{api_version}/{admin_path}/server/backup` | POST | Create backup |
-| `/api/{api_version}/{admin_path}/server/backup/{id}` | GET | Get backup details |
-| `/api/{api_version}/{admin_path}/server/backup/{id}` | DELETE | Delete backup |
-| `/api/{api_version}/{admin_path}/server/backup/{id}/download` | GET | Download backup file |
-| `/api/{api_version}/{admin_path}/server/backup/restore` | POST | Restore from backup |
+| `/api/{api_version}/server/{admin_path}/config/web` | GET | Get web settings |
+| `/api/{api_version}/server/{admin_path}/config/web` | PATCH | Update web settings |
+| `/api/{api_version}/server/{admin_path}/config/web/robots` | GET | Get robots.txt config |
+| `/api/{api_version}/server/{admin_path}/config/web/robots` | PATCH | Update robots.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/robots/preview` | GET | Preview robots.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/security` | GET | Get security.txt config |
+| `/api/{api_version}/server/{admin_path}/config/web/security` | PATCH | Update security.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/security/preview` | GET | Preview security.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known` | GET | Get well-known namespace settings and supported entries |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known` | PATCH | Update optional well-known entry settings |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known/preview/{name}` | GET | Preview the exact rendered body for one well-known entry |
 
-### Admin - Logs (`/api/{api_version}/{admin_path}/server/logs/`)
+**`/api/{api_version}/server/{admin_path}/config/web` includes `server.healthz.root.enabled` and well-known namespace status in its settings payload.**
+
+### Admin - Pages (`/api/{api_version}/server/{admin_path}/config/pages/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/logs` | GET | List log files |
-| `/api/{api_version}/{admin_path}/server/logs/{type}` | GET | Get log entries |
-| `/api/{api_version}/{admin_path}/server/logs/{type}/download` | GET | Download log file |
+| `/api/{api_version}/server/{admin_path}/config/pages` | GET | Get all page settings |
+| `/api/{api_version}/server/{admin_path}/config/pages/about` | GET | Get about page content |
+| `/api/{api_version}/server/{admin_path}/config/pages/about` | PATCH | Update about page |
+| `/api/{api_version}/server/{admin_path}/config/pages/privacy` | GET | Get privacy policy |
+| `/api/{api_version}/server/{admin_path}/config/pages/privacy` | PATCH | Update privacy policy |
+| `/api/{api_version}/server/{admin_path}/config/pages/contact` | GET | Get contact page settings |
+| `/api/{api_version}/server/{admin_path}/config/pages/contact` | PATCH | Update contact page |
+| `/api/{api_version}/server/{admin_path}/config/pages/help` | GET | Get help page content |
+| `/api/{api_version}/server/{admin_path}/config/pages/help` | PATCH | Update help page |
+
+### Admin - Email (`/api/{api_version}/server/{admin_path}/config/email/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/email` | GET | Get email settings |
+| `/api/{api_version}/server/{admin_path}/config/email` | PATCH | Update email settings |
+| `/api/{api_version}/server/{admin_path}/config/email/test` | POST | Send test email |
+| `/api/{api_version}/server/{admin_path}/config/email/templates` | GET | List email templates |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}` | GET | Get template |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}` | PUT | Update template |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}/reset` | POST | Reset to default |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}/preview` | POST | Preview template |
+
+### Admin - Scheduler (`/api/{api_version}/server/{admin_path}/config/scheduler/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/scheduler` | GET | List scheduled tasks |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | GET | Get task details |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | PATCH | Update task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/run` | POST | Run task now |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/enable` | POST | Enable task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/disable` | POST | Disable task |
+
+### Admin - Backup (`/api/{api_version}/server/{admin_path}/config/backup/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/backup` | GET | List backups |
+| `/api/{api_version}/server/{admin_path}/config/backup` | POST | Create backup |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}` | GET | Get backup details |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}` | DELETE | Delete backup |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}/download` | GET | Download backup file |
+| `/api/{api_version}/server/{admin_path}/config/backup/restore` | POST | Restore from backup |
+
+### Admin - Logs (`/api/{api_version}/server/{admin_path}/config/logs/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/logs` | GET | List log files |
+| `/api/{api_version}/server/{admin_path}/config/logs/{type}` | GET | Get log entries |
+| `/api/{api_version}/server/{admin_path}/config/logs/{type}/download` | GET | Download log file |
 
 ## Agent Management (OPTIONAL - When Agent is Enabled)
 
@@ -29874,13 +30677,13 @@ The admin panel MUST include a scheduler section with:
 
 **See PART 33 for full agent binary and setup details.**
 
-### Admin Panel (`/{admin_path}/server/agents`)
+### Admin Panel (`/server/{admin_path}/config/agents`)
 
 **Main agent dashboard showing all registered agents:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  /{admin_path}/server/agents                                                         │
+│  /server/{admin_path}/config/agents                                                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  Connected Agents                                              [+ Add Agent] │
@@ -29909,13 +30712,13 @@ The admin panel MUST include a scheduler section with:
 | **Last Seen** | Time since last heartbeat/report |
 | **Health** | ✓ Good / ⚠ Warn / ✗ Error (based on agent metrics) |
 
-### Admin Panel (`/{admin_path}/server/agents/{name}`)
+### Admin Panel (`/server/{admin_path}/config/agents/{name}`)
 
 **Detailed view of a single agent:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  /{admin_path}/server/agents/web-server-01                         [← Back to List] │
+│  /server/{admin_path}/config/agents/web-server-01                         [← Back to List] │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  web-server-01                                             ● Online         │
@@ -29962,13 +30765,13 @@ The admin panel MUST include a scheduler section with:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Admin Panel (`/{admin_path}/server/agents/add`)
+### Admin Panel (`/server/{admin_path}/config/agents/add`)
 
 **Simple agent registration page:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  /{admin_path}/server/agents/add                                   [← Back to List] │
+│  /server/{admin_path}/config/agents/add                                   [← Back to List] │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  Add New Agent                                                              │
@@ -30078,13 +30881,13 @@ func getDefaultAgentName() string {
 - Agent reconnection after disconnect
 - Agent status change (online/offline)
 
-### Admin Panel (`/{admin_path}/server/agents/remove`)
+### Admin Panel (`/server/{admin_path}/config/agents/remove`)
 
 **Agent removal page with confirmation:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  /{admin_path}/server/agents/remove                                [← Back to List] │
+│  /server/{admin_path}/config/agents/remove                                [← Back to List] │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  Remove Agent                                                               │
@@ -30133,7 +30936,7 @@ func getDefaultAgentName() string {
 
 | Scope | Base Route | Owner Token | Agent Token |
 |-------|------------|-------------|-------------|
-| Admin | `/api/{api_version}/{admin_path}/server/agents/` | `adm_` | `adm_agt_` |
+| Admin | `/api/{api_version}/server/{admin_path}/config/agents/` | `adm_` | `adm_agt_` |
 | User | `/api/{api_version}/users/agents/` | `usr_` | `usr_agt_` |
 | Org | `/api/{api_version}/orgs/{slug}/agents/` | `org_` | `org_agt_` |
 
@@ -30159,7 +30962,7 @@ func getDefaultAgentName() string {
 **Examples:**
 ```
 # Admin agent (server infrastructure)
-POST /api/{api_version}/{admin_path}/server/agents/register
+POST /api/{api_version}/server/{admin_path}/config/agents/register
 Authorization: Bearer adm_agt_abc123...
 
 # User agent (personal SaaS monitoring)
@@ -30177,7 +30980,7 @@ Agent data can be exposed via project-specific routes for different audiences:
 
 | Route | Description | Example |
 |-------|-------------|---------|
-| `/{admin_path}/server/agents/*` | Admin management UI | Full control |
+| `/server/{admin_path}/config/agents/*` | Admin management UI | Full control |
 | `/users/agents/*` | User's agent dashboard | Personal agents |
 | `/orgs/{slug}/agents/*` | Org agent dashboard | Org agents |
 | `/{custom}/status` | Public status page | Status dashboard |
@@ -30380,7 +31183,7 @@ server:
 - ✓ Show clear message: "Email features require SMTP configuration"
 
 **Admin Panel:**
-- If SMTP not configured, show banner: "⚠️ SMTP not configured. Email features disabled. [Configure SMTP](/{admin_path}/server/email)"
+- If SMTP not configured, show banner: "⚠️ SMTP not configured. Email features disabled. [Configure SMTP](/server/{admin_path}/config/email)"
 - Email-dependent features (password reset link, etc.) hidden until SMTP configured
 - Test email button validates SMTP actually works before enabling email features
 
@@ -30599,7 +31402,7 @@ IMPORTANT NEXT STEPS
 5. Enable two-factor authentication
 
 Keep your admin credentials secure. If you lose access, use:
-  caspbx --maintenance setup
+  {project_name} --maintenance setup
 ────────────────────────────────────────────────────────────────────────
 
 --
@@ -30702,7 +31505,7 @@ If this was you, no action is required.
 If you did not log in, your account may be compromised. Take action:
 
 1. Change your password immediately:
-   {app_url}/auth/password/forgot
+   {app_url}/server/auth/password/forgot
 
 2. Review your active sessions:
    {app_url}/settings/sessions
@@ -30740,7 +31543,7 @@ Details:
 If this activity was not you:
 
 1. Change your password immediately:
-   {app_url}/auth/password/forgot
+   {app_url}/server/auth/password/forgot
 
 2. Review account activity:
    {app_url}/settings/security
@@ -30777,7 +31580,7 @@ Method used: {method}
 If you did not disable 2FA, your account may be compromised:
 
 1. Change your password immediately:
-   {app_url}/auth/password/forgot
+   {app_url}/server/auth/password/forgot
 
 2. Re-enable 2FA:
    {app_url}/settings/security
@@ -30816,7 +31619,7 @@ If you made this change, no action is required.
 If you did not change your password, your account may be compromised:
 
 1. Reset your password immediately:
-   {app_url}/auth/password/forgot
+   {app_url}/server/auth/password/forgot
 
 2. Review your account security:
    {app_url}/settings/security
@@ -30885,7 +31688,7 @@ We recommend you take the following steps to protect your account:
 {recommended_actions}
 
 1. Change your password immediately:
-   {app_url}/auth/password/forgot
+   {app_url}/server/auth/password/forgot
 
 2. Review your account activity:
    {app_url}/users/security
@@ -31138,7 +31941,7 @@ Do not reply to this email.
 | `{notify_deadline}` | Deadline for user notification (based on strictest standard) |
 | `{admin_url}` | Admin panel URL |
 
-## Admin Panel (/{admin_path}/server/email/templates)
+## Admin Panel (/server/{admin_path}/config/email/templates)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -31170,8 +31973,8 @@ Do not reply to this email.
 | `{fqdn}` | Current FQDN |
 | `{recipient_email}` | `user@example.com` |
 | `{recipient_username}` | `sampleuser` |
-| `{reset_link}` | `https://{fqdn}/auth/reset/sample123...` |
-| `{verify_link}` | `https://{fqdn}/auth/verify/sample123...` |
+| `{reset_link}` | `https://{fqdn}/server/auth/reset/sample123...` |
+| `{verify_link}` | `https://{fqdn}/server/auth/verify/sample123...` |
 | `{expires}` | `24 hours` |
 | `{ip}` | `192.168.1.100` |
 | `{timestamp}` | Current timestamp |
@@ -31287,7 +32090,7 @@ Do not reply to this email.
 
 ## Server Admin Notifications
 
-**Notifications shown to Server Admins in `/admin/*` routes.**
+**Notifications shown to Server Admins in `/server/{admin_path}/*` routes.**
 
 | Event | Toast | Banner | Center | Description |
 |-------|:-----:|:------:|:------:|-------------|
@@ -31399,7 +32202,7 @@ Do not reply to this email.
   "type": "warning",
   "title": "SSL Certificate Expiring",
   "message": "Certificate expires in 3 days",
-  "link": "/{admin_path}/server/ssl",
+  "link": "/server/{admin_path}/config/ssl",
   "read": false,
   "created_at": "2025-01-15T10:30:00Z"
 }
@@ -31420,7 +32223,7 @@ Do not reply to this email.
 
 **Both Server Admins and users can configure their notification preferences.**
 
-### Admin Notification Preferences (`/{admin_path}/profile/notifications`)
+### Admin Notification Preferences (`/server/{admin_path}/{admin_username}/notifications`)
 
 | Category | Events | Default | Can Disable? |
 |----------|--------|---------|--------------|
@@ -31433,7 +32236,7 @@ Do not reply to this email.
 **Security notifications cannot be disabled** - these are critical for account security.
 
 ```
-Admin Notification Preferences (/{admin_path}/profile/notifications)
+Admin Notification Preferences (/server/{admin_path}/{admin_username}/notifications)
 ┌─────────────────────────────────────────────────────────────┐
 │  Notification Preferences                                   │
 ├─────────────────────────────────────────────────────────────┤
@@ -31736,8 +32539,8 @@ server:
         enabled: true
         # Verify after creation (all checks must pass)
         verify: true
-        # Creates: caspbx_backup_YYYY-MM-DD.tar.gz[.enc] (full)
-        #          caspbx-daily.tar.gz[.enc] (incremental)
+        # Creates: {project_name}_backup_YYYY-MM-DD.tar.gz[.enc] (full)
+        #          {project_name}-daily.tar.gz[.enc] (incremental)
         retention:
           max_backups: 1     # 1-365: daily full backups to keep
           keep_weekly: 0     # 0-52: Sunday backups (0 = disabled)
@@ -31748,7 +32551,7 @@ server:
       backup_hourly:
         schedule: "@hourly"
         enabled: false
-        # Creates: caspbx-hourly.tar.gz[.enc] (incremental since daily)
+        # Creates: {project_name}-hourly.tar.gz[.enc] (incremental since daily)
         # Always 1 file (replaced each hour)
 
       # Every 5 minutes
@@ -31825,7 +32628,7 @@ In cluster mode, tasks are distributed to prevent duplicate execution:
 
 | Task Type | Execution |
 |-----------|-----------|
-| **Global Tasks** | Run on ONE node only (leader election) |
+| **Global Tasks** | Run on ONE node only (primary election) |
 | **Local Tasks** | Run on EVERY node |
 
 **Global Tasks (run once per cluster):**
@@ -31905,7 +32708,7 @@ Execute task
 | `retry_delay` | 5m | Delay between retries |
 | `backoff` | exponential | Delay multiplier (5m, 10m, 20m) |
 
-### Admin Panel (/{admin_path}/server/scheduler)
+### Admin Panel (/server/{admin_path}/config/scheduler)
 
 | Section | Contents |
 |---------|----------|
@@ -32002,23 +32805,23 @@ Execute task
 | Verify | Yes | All checks must pass |
 
 **What backup_daily creates (default: 2 files):**
-- `caspbx_backup_YYYY-MM-DD.tar.gz[.enc]` - Full backup (yesterday's)
-- `caspbx-daily.tar.gz[.enc]` - Daily incremental
+- `{project_name}_backup_YYYY-MM-DD.tar.gz[.enc]` - Full backup (yesterday's)
+- `{project_name}-daily.tar.gz[.enc]` - Daily incremental
 
 **What backup_hourly creates (if enabled: +1 file):**
-- `caspbx-hourly.tar.gz[.enc]` - Hourly incremental
+- `{project_name}-hourly.tar.gz[.enc]` - Hourly incremental
 
 ### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/scheduler` | GET | List all tasks |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | GET | Get task details |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | PATCH | Update task settings |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/run` | POST | Run task immediately |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/enable` | POST | Enable task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/disable` | POST | Disable task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/history` | GET | Get execution history |
+| `/api/{api_version}/server/{admin_path}/config/scheduler` | GET | List all tasks |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | GET | Get task details |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | PATCH | Update task settings |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/run` | POST | Run task immediately |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/enable` | POST | Enable task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/disable` | POST | Disable task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/history` | GET | Get execution history |
 
 ### Shutdown Behavior
 
@@ -32124,7 +32927,7 @@ All databases from [sapics/ip-location-db](https://github.com/sapics/ip-location
 | City | `city`, `region`, `postal_code`, `latitude`, `longitude`, `timezone` |
 | WHOIS | `registrant_org`, `asn`, `country_code` (combined lookup) |
 
-## Admin Panel (/{admin_path}/server/network/geoip)
+## Admin Panel (/server/{admin_path}/config/network/geoip)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -32173,7 +32976,7 @@ All databases from [sapics/ip-location-db](https://github.com/sapics/ip-location
 
 ## Access Control
 
-**`/metrics` is INTERNAL ONLY. See TERMINOLOGY > Monitoring Endpoints for /healthz vs /metrics distinction.**
+**`/metrics` is INTERNAL ONLY. See TERMINOLOGY > Monitoring Endpoints for /server/healthz vs /metrics distinction.**
 
 | Deployment | Access Method | Recommendation |
 |------------|---------------|----------------|
@@ -32197,7 +33000,7 @@ Authorization: Bearer <token>
 **Prometheus scrape config with token:**
 ```yaml
 scrape_configs:
-  - job_name: 'caspbx'
+  - job_name: '{project_name}'
     static_configs:
       - targets: ['app.internal:8080']
     authorization:
@@ -32245,7 +33048,7 @@ server:
 
 | Rule | Format | Example |
 |------|--------|---------|
-| **Prefix** | `caspbx_` | `jokes_http_requests_total` |
+| **Prefix** | `{project_name}_` | `jokes_http_requests_total` |
 | **Snake case** | `word_word_word` | `http_request_duration_seconds` |
 | **Unit suffix** | `_seconds`, `_bytes`, `_total` | `request_duration_seconds` |
 | **Total suffix** | Counters end with `_total` | `http_requests_total` |
@@ -32279,36 +33082,36 @@ server:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `caspbx_app_info` | Gauge | `version`, `commit`, `build_date`, `go_version` | Always 1, labels carry info |
-| `caspbx_app_uptime_seconds` | Gauge | - | Seconds since start |
-| `caspbx_app_start_timestamp` | Gauge | - | Unix timestamp of start |
+| `{project_name}_app_info` | Gauge | `version`, `commit`, `build_date`, `go_version` | Always 1, labels carry info |
+| `{project_name}_app_uptime_seconds` | Gauge | - | Seconds since start |
+| `{project_name}_app_start_timestamp` | Gauge | - | Unix timestamp of start |
 
 ### Required: HTTP Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `caspbx_http_requests_total` | Counter | `method`, `path`, `status` | Total HTTP requests |
-| `caspbx_http_request_duration_seconds` | Histogram | `method`, `path` | Request latency |
-| `caspbx_http_request_size_bytes` | Histogram | `method`, `path` | Request body size |
-| `caspbx_http_response_size_bytes` | Histogram | `method`, `path` | Response body size |
-| `caspbx_http_active_requests` | Gauge | - | In-flight requests |
+| `{project_name}_http_requests_total` | Counter | `method`, `path`, `status` | Total HTTP requests |
+| `{project_name}_http_request_duration_seconds` | Histogram | `method`, `path` | Request latency |
+| `{project_name}_http_request_size_bytes` | Histogram | `method`, `path` | Request body size |
+| `{project_name}_http_response_size_bytes` | Histogram | `method`, `path` | Response body size |
+| `{project_name}_http_active_requests` | Gauge | - | In-flight requests |
 
 ### Required: Database Metrics (if using database)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `caspbx_db_queries_total` | Counter | `operation`, `table` | Total queries |
-| `caspbx_db_query_duration_seconds` | Histogram | `operation`, `table` | Query latency |
-| `caspbx_db_connections_open` | Gauge | - | Open connections |
-| `caspbx_db_connections_in_use` | Gauge | - | Active connections |
-| `caspbx_db_errors_total` | Counter | `operation`, `error_type` | Database errors |
+| `{project_name}_db_queries_total` | Counter | `operation`, `table` | Total queries |
+| `{project_name}_db_query_duration_seconds` | Histogram | `operation`, `table` | Query latency |
+| `{project_name}_db_connections_open` | Gauge | - | Open connections |
+| `{project_name}_db_connections_in_use` | Gauge | - | Active connections |
+| `{project_name}_db_errors_total` | Counter | `operation`, `error_type` | Database errors |
 
 ### Required: Authentication Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `caspbx_auth_attempts_total` | Counter | `method`, `status` | Auth attempts |
-| `caspbx_auth_sessions_active` | Gauge | - | Active sessions |
+| `{project_name}_auth_attempts_total` | Counter | `method`, `status` | Auth attempts |
+| `{project_name}_auth_sessions_active` | Gauge | - | Active sessions |
 
 ### Optional: Extended Metrics
 
@@ -32322,7 +33125,7 @@ server:
 
 ## Complete Metrics Reference
 
-**Every metric exported by `/metrics`. All prefixed with `caspbx_`.**
+**Every metric exported by `/metrics`. All prefixed with `{project_name}_`.**
 
 ### Application Metrics (REQUIRED)
 
@@ -32472,7 +33275,7 @@ server:
 | `cluster_nodes_healthy` | Gauge | - | Healthy nodes in cluster |
 | `cluster_is_primary` | Gauge | - | 1 if this node is primary, 0 otherwise |
 | `cluster_sync_lag_seconds` | Gauge | - | Replication lag from primary |
-| `cluster_elections_total` | Counter | - | Total leader elections |
+| `cluster_elections_total` | Counter | - | Total primary elections |
 
 ### Tor Metrics (if using PART 32 Tor)
 
@@ -32502,132 +33305,132 @@ server:
 **Sample `/metrics` output (Prometheus text format):**
 
 ```
-# HELP caspbx_app_info Application information
-# TYPE caspbx_app_info gauge
-caspbx_app_info{version="1.2.3",commit="abc1234",build_date="2025-01-15",go_version="go1.23"} 1
+# HELP {project_name}_app_info Application information
+# TYPE {project_name}_app_info gauge
+{project_name}_app_info{version="1.2.3",commit="abc1234",build_date="2025-01-15",go_version="<runtime.Version()>"} 1
 
-# HELP caspbx_app_uptime_seconds Application uptime in seconds
-# TYPE caspbx_app_uptime_seconds gauge
-caspbx_app_uptime_seconds 86423.5
+# HELP {project_name}_app_uptime_seconds Application uptime in seconds
+# TYPE {project_name}_app_uptime_seconds gauge
+{project_name}_app_uptime_seconds 86423.5
 
-# HELP caspbx_app_start_timestamp Application start timestamp
-# TYPE caspbx_app_start_timestamp gauge
-caspbx_app_start_timestamp 1.705312200e+09
+# HELP {project_name}_app_start_timestamp Application start timestamp
+# TYPE {project_name}_app_start_timestamp gauge
+{project_name}_app_start_timestamp 1.705312200e+09
 
-# HELP caspbx_http_requests_total Total number of HTTP requests
-# TYPE caspbx_http_requests_total counter
-caspbx_http_requests_total{method="GET",path="/api/v1/users",status="200"} 1523
-caspbx_http_requests_total{method="GET",path="/api/v1/users/:id",status="200"} 892
-caspbx_http_requests_total{method="GET",path="/api/v1/users/:id",status="404"} 23
-caspbx_http_requests_total{method="POST",path="/api/v1/users",status="201"} 42
-caspbx_http_requests_total{method="GET",path="/healthz",status="200"} 8640
+# HELP {project_name}_http_requests_total Total number of HTTP requests
+# TYPE {project_name}_http_requests_total counter
+{project_name}_http_requests_total{method="GET",path="/api/v1/users",status="200"} 1523
+{project_name}_http_requests_total{method="GET",path="/api/v1/users/:id",status="200"} 892
+{project_name}_http_requests_total{method="GET",path="/api/v1/users/:id",status="404"} 23
+{project_name}_http_requests_total{method="POST",path="/api/v1/users",status="201"} 42
+{project_name}_http_requests_total{method="GET",path="/server/healthz",status="200"} 8640
 
-# HELP caspbx_http_request_duration_seconds HTTP request duration in seconds
-# TYPE caspbx_http_request_duration_seconds histogram
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.001"} 120
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.005"} 890
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.01"} 1400
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.025"} 1500
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.05"} 1510
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.1"} 1520
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="+Inf"} 1523
-caspbx_http_request_duration_seconds_sum{method="GET",path="/api/v1/users"} 12.456
-caspbx_http_request_duration_seconds_count{method="GET",path="/api/v1/users"} 1523
+# HELP {project_name}_http_request_duration_seconds HTTP request duration in seconds
+# TYPE {project_name}_http_request_duration_seconds histogram
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.001"} 120
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.005"} 890
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.01"} 1400
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.025"} 1500
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.05"} 1510
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.1"} 1520
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="+Inf"} 1523
+{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/v1/users"} 12.456
+{project_name}_http_request_duration_seconds_count{method="GET",path="/api/v1/users"} 1523
 
-# HELP caspbx_http_active_requests Number of active HTTP requests
-# TYPE caspbx_http_active_requests gauge
-caspbx_http_active_requests 3
+# HELP {project_name}_http_active_requests Number of active HTTP requests
+# TYPE {project_name}_http_active_requests gauge
+{project_name}_http_active_requests 3
 
-# HELP caspbx_db_connections_open Number of open database connections
-# TYPE caspbx_db_connections_open gauge
-caspbx_db_connections_open 10
+# HELP {project_name}_db_connections_open Number of open database connections
+# TYPE {project_name}_db_connections_open gauge
+{project_name}_db_connections_open 10
 
-# HELP caspbx_db_connections_in_use Number of database connections in use
-# TYPE caspbx_db_connections_in_use gauge
-caspbx_db_connections_in_use 2
+# HELP {project_name}_db_connections_in_use Number of database connections in use
+# TYPE {project_name}_db_connections_in_use gauge
+{project_name}_db_connections_in_use 2
 
-# HELP caspbx_cache_hits_total Total number of cache hits
-# TYPE caspbx_cache_hits_total counter
-caspbx_cache_hits_total{cache="sessions"} 8234
-caspbx_cache_hits_total{cache="users"} 1523
+# HELP {project_name}_cache_hits_total Total number of cache hits
+# TYPE {project_name}_cache_hits_total counter
+{project_name}_cache_hits_total{cache="sessions"} 8234
+{project_name}_cache_hits_total{cache="users"} 1523
 
-# HELP caspbx_cache_misses_total Total number of cache misses
-# TYPE caspbx_cache_misses_total counter
-caspbx_cache_misses_total{cache="sessions"} 156
-caspbx_cache_misses_total{cache="users"} 42
+# HELP {project_name}_cache_misses_total Total number of cache misses
+# TYPE {project_name}_cache_misses_total counter
+{project_name}_cache_misses_total{cache="sessions"} 156
+{project_name}_cache_misses_total{cache="users"} 42
 
-# HELP caspbx_auth_attempts_total Total authentication attempts
-# TYPE caspbx_auth_attempts_total counter
-caspbx_auth_attempts_total{method="password",status="success"} 523
-caspbx_auth_attempts_total{method="password",status="failed"} 12
-caspbx_auth_attempts_total{method="api_token",status="success"} 8923
+# HELP {project_name}_auth_attempts_total Total authentication attempts
+# TYPE {project_name}_auth_attempts_total counter
+{project_name}_auth_attempts_total{method="password",status="success"} 523
+{project_name}_auth_attempts_total{method="password",status="failed"} 12
+{project_name}_auth_attempts_total{method="api_token",status="success"} 8923
 
-# HELP caspbx_auth_sessions_active Number of active sessions
-# TYPE caspbx_auth_sessions_active gauge
-caspbx_auth_sessions_active 42
+# HELP {project_name}_auth_sessions_active Number of active sessions
+# TYPE {project_name}_auth_sessions_active gauge
+{project_name}_auth_sessions_active 42
 
-# HELP caspbx_scheduler_tasks_total Total number of scheduled tasks executed
-# TYPE caspbx_scheduler_tasks_total counter
-caspbx_scheduler_tasks_total{task="cleanup",status="success"} 288
-caspbx_scheduler_tasks_total{task="backup",status="success"} 24
-caspbx_scheduler_tasks_total{task="geoip_update",status="success"} 1
+# HELP {project_name}_scheduler_tasks_total Total number of scheduled tasks executed
+# TYPE {project_name}_scheduler_tasks_total counter
+{project_name}_scheduler_tasks_total{task="cleanup",status="success"} 288
+{project_name}_scheduler_tasks_total{task="backup",status="success"} 24
+{project_name}_scheduler_tasks_total{task="geoip_update",status="success"} 1
 
-# HELP caspbx_scheduler_last_run_timestamp Timestamp of last task run
-# TYPE caspbx_scheduler_last_run_timestamp gauge
-caspbx_scheduler_last_run_timestamp{task="cleanup"} 1.705398600e+09
-caspbx_scheduler_last_run_timestamp{task="backup"} 1.705395000e+09
+# HELP {project_name}_scheduler_last_run_timestamp Timestamp of last task run
+# TYPE {project_name}_scheduler_last_run_timestamp gauge
+{project_name}_scheduler_last_run_timestamp{task="cleanup"} 1.705398600e+09
+{project_name}_scheduler_last_run_timestamp{task="backup"} 1.705395000e+09
 
-# HELP caspbx_system_cpu_usage_percent Current CPU usage percentage
-# TYPE caspbx_system_cpu_usage_percent gauge
-caspbx_system_cpu_usage_percent 12.5
+# HELP {project_name}_system_cpu_usage_percent Current CPU usage percentage
+# TYPE {project_name}_system_cpu_usage_percent gauge
+{project_name}_system_cpu_usage_percent 12.5
 
-# HELP caspbx_system_memory_usage_percent Current memory usage percentage
-# TYPE caspbx_system_memory_usage_percent gauge
-caspbx_system_memory_usage_percent 45.2
+# HELP {project_name}_system_memory_usage_percent Current memory usage percentage
+# TYPE {project_name}_system_memory_usage_percent gauge
+{project_name}_system_memory_usage_percent 45.2
 
-# HELP caspbx_system_memory_used_bytes Memory used in bytes
-# TYPE caspbx_system_memory_used_bytes gauge
-caspbx_system_memory_used_bytes 3.865470976e+09
+# HELP {project_name}_system_memory_used_bytes Memory used in bytes
+# TYPE {project_name}_system_memory_used_bytes gauge
+{project_name}_system_memory_used_bytes 3.865470976e+09
 
-# HELP caspbx_system_memory_total_bytes Total memory in bytes
-# TYPE caspbx_system_memory_total_bytes gauge
-caspbx_system_memory_total_bytes 8.589934592e+09
+# HELP {project_name}_system_memory_total_bytes Total memory in bytes
+# TYPE {project_name}_system_memory_total_bytes gauge
+{project_name}_system_memory_total_bytes 8.589934592e+09
 
-# HELP caspbx_system_disk_usage_percent Disk usage percentage
-# TYPE caspbx_system_disk_usage_percent gauge
-caspbx_system_disk_usage_percent{path="/var/lib/myorg/myapp"} 62.3
+# HELP {project_name}_system_disk_usage_percent Disk usage percentage
+# TYPE {project_name}_system_disk_usage_percent gauge
+{project_name}_system_disk_usage_percent{path="/var/lib/myorg/myapp"} 62.3
 
-# HELP caspbx_go_goroutines Number of goroutines
-# TYPE caspbx_go_goroutines gauge
-caspbx_go_goroutines 47
+# HELP {project_name}_go_goroutines Number of goroutines
+# TYPE {project_name}_go_goroutines gauge
+{project_name}_go_goroutines 47
 
-# HELP caspbx_go_mem_alloc_bytes Bytes allocated and in use
-# TYPE caspbx_go_mem_alloc_bytes gauge
-caspbx_go_mem_alloc_bytes 2.4576e+07
+# HELP {project_name}_go_mem_alloc_bytes Bytes allocated and in use
+# TYPE {project_name}_go_mem_alloc_bytes gauge
+{project_name}_go_mem_alloc_bytes 2.4576e+07
 
-# HELP caspbx_go_gc_runs_total Total number of GC runs
-# TYPE caspbx_go_gc_runs_total counter
-caspbx_go_gc_runs_total 1523
+# HELP {project_name}_go_gc_runs_total Total number of GC runs
+# TYPE {project_name}_go_gc_runs_total counter
+{project_name}_go_gc_runs_total 1523
 
-# HELP caspbx_cluster_nodes_total Total nodes in cluster
-# TYPE caspbx_cluster_nodes_total gauge
-caspbx_cluster_nodes_total 3
+# HELP {project_name}_cluster_nodes_total Total nodes in cluster
+# TYPE {project_name}_cluster_nodes_total gauge
+{project_name}_cluster_nodes_total 3
 
-# HELP caspbx_cluster_nodes_healthy Healthy nodes in cluster
-# TYPE caspbx_cluster_nodes_healthy gauge
-caspbx_cluster_nodes_healthy 3
+# HELP {project_name}_cluster_nodes_healthy Healthy nodes in cluster
+# TYPE {project_name}_cluster_nodes_healthy gauge
+{project_name}_cluster_nodes_healthy 3
 
-# HELP caspbx_cluster_is_primary 1 if this node is primary
-# TYPE caspbx_cluster_is_primary gauge
-caspbx_cluster_is_primary 1
+# HELP {project_name}_cluster_is_primary 1 if this node is primary
+# TYPE {project_name}_cluster_is_primary gauge
+{project_name}_cluster_is_primary 1
 
-# HELP caspbx_tor_enabled 1 if Tor is enabled
-# TYPE caspbx_tor_enabled gauge
-caspbx_tor_enabled 1
+# HELP {project_name}_tor_enabled 1 if Tor is enabled
+# TYPE {project_name}_tor_enabled gauge
+{project_name}_tor_enabled 1
 
-# HELP caspbx_tor_running 1 if Tor process is running
-# TYPE caspbx_tor_running gauge
-caspbx_tor_running 1
+# HELP {project_name}_tor_running 1 if Tor process is running
+# TYPE {project_name}_tor_running gauge
+{project_name}_tor_running 1
 ```
 
 ## Metrics Implementation
@@ -32647,7 +33450,7 @@ var (
     // HTTP metrics
     HTTPRequestsTotal = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_http_requests_total",
+            Name: "{project_name}_http_requests_total",
             Help: "Total number of HTTP requests",
         },
         []string{"method", "path", "status"},
@@ -32655,7 +33458,7 @@ var (
 
     HTTPRequestDuration = promauto.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "caspbx_http_request_duration_seconds",
+            Name:    "{project_name}_http_request_duration_seconds",
             Help:    "HTTP request duration in seconds",
             Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
         },
@@ -32664,7 +33467,7 @@ var (
 
     HTTPRequestSize = promauto.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "caspbx_http_request_size_bytes",
+            Name:    "{project_name}_http_request_size_bytes",
             Help:    "HTTP request size in bytes",
             Buckets: []float64{100, 1000, 10000, 100000, 1000000, 10000000},
         },
@@ -32673,7 +33476,7 @@ var (
 
     HTTPResponseSize = promauto.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "caspbx_http_response_size_bytes",
+            Name:    "{project_name}_http_response_size_bytes",
             Help:    "HTTP response size in bytes",
             Buckets: []float64{100, 1000, 10000, 100000, 1000000, 10000000},
         },
@@ -32682,7 +33485,7 @@ var (
 
     HTTPActiveRequests = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_http_active_requests",
+            Name: "{project_name}_http_active_requests",
             Help: "Number of active HTTP requests",
         },
     )
@@ -32690,7 +33493,7 @@ var (
     // Database metrics
     DBQueriesTotal = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_db_queries_total",
+            Name: "{project_name}_db_queries_total",
             Help: "Total number of database queries",
         },
         []string{"operation", "table"},
@@ -32698,7 +33501,7 @@ var (
 
     DBQueryDuration = promauto.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "caspbx_db_query_duration_seconds",
+            Name:    "{project_name}_db_query_duration_seconds",
             Help:    "Database query duration in seconds",
             Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
         },
@@ -32707,21 +33510,21 @@ var (
 
     DBConnectionsOpen = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_db_connections_open",
+            Name: "{project_name}_db_connections_open",
             Help: "Number of open database connections",
         },
     )
 
     DBConnectionsInUse = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_db_connections_in_use",
+            Name: "{project_name}_db_connections_in_use",
             Help: "Number of database connections in use",
         },
     )
 
     DBErrors = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_db_errors_total",
+            Name: "{project_name}_db_errors_total",
             Help: "Total number of database errors",
         },
         []string{"operation", "error_type"},
@@ -32730,7 +33533,7 @@ var (
     // Cache metrics
     CacheHits = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_cache_hits_total",
+            Name: "{project_name}_cache_hits_total",
             Help: "Total number of cache hits",
         },
         []string{"cache"},
@@ -32738,7 +33541,7 @@ var (
 
     CacheMisses = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_cache_misses_total",
+            Name: "{project_name}_cache_misses_total",
             Help: "Total number of cache misses",
         },
         []string{"cache"},
@@ -32746,7 +33549,7 @@ var (
 
     CacheEvictions = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_cache_evictions_total",
+            Name: "{project_name}_cache_evictions_total",
             Help: "Total number of cache evictions",
         },
         []string{"cache"},
@@ -32754,7 +33557,7 @@ var (
 
     CacheSize = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_cache_size",
+            Name: "{project_name}_cache_size",
             Help: "Current cache size (items)",
         },
         []string{"cache"},
@@ -32762,7 +33565,7 @@ var (
 
     CacheBytes = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_cache_bytes",
+            Name: "{project_name}_cache_bytes",
             Help: "Current cache size (bytes)",
         },
         []string{"cache"},
@@ -32771,7 +33574,7 @@ var (
     // Scheduler metrics
     SchedulerTasksTotal = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_scheduler_tasks_total",
+            Name: "{project_name}_scheduler_tasks_total",
             Help: "Total number of scheduled tasks executed",
         },
         []string{"task", "status"},
@@ -32779,7 +33582,7 @@ var (
 
     SchedulerTaskDuration = promauto.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "caspbx_scheduler_task_duration_seconds",
+            Name:    "{project_name}_scheduler_task_duration_seconds",
             Help:    "Scheduled task duration in seconds",
             Buckets: []float64{0.1, 0.5, 1, 5, 10, 30, 60, 300, 600},
         },
@@ -32788,7 +33591,7 @@ var (
 
     SchedulerTasksRunning = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_scheduler_tasks_running",
+            Name: "{project_name}_scheduler_tasks_running",
             Help: "Number of currently running scheduled tasks",
         },
         []string{"task"},
@@ -32796,7 +33599,7 @@ var (
 
     SchedulerLastRun = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_scheduler_last_run_timestamp",
+            Name: "{project_name}_scheduler_last_run_timestamp",
             Help: "Timestamp of last task run",
         },
         []string{"task"},
@@ -32805,7 +33608,7 @@ var (
     // Authentication metrics
     AuthAttempts = promauto.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "caspbx_auth_attempts_total",
+            Name: "{project_name}_auth_attempts_total",
             Help: "Total authentication attempts",
         },
         []string{"method", "status"},
@@ -32813,7 +33616,7 @@ var (
 
     AuthSessionsActive = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_auth_sessions_active",
+            Name: "{project_name}_auth_sessions_active",
             Help: "Number of active sessions",
         },
     )
@@ -32821,21 +33624,21 @@ var (
     // Business metrics
     UsersTotal = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_users_total",
+            Name: "{project_name}_users_total",
             Help: "Total number of registered users",
         },
     )
 
     UsersActive = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_users_active",
+            Name: "{project_name}_users_active",
             Help: "Number of users active in last 24 hours",
         },
     )
 
     APITokensActive = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_api_tokens_active",
+            Name: "{project_name}_api_tokens_active",
             Help: "Number of active API tokens",
         },
     )
@@ -32843,7 +33646,7 @@ var (
     // Application info
     AppInfo = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_app_info",
+            Name: "{project_name}_app_info",
             Help: "Application information",
         },
         []string{"version", "commit", "build_date", "go_version"},
@@ -32851,14 +33654,14 @@ var (
 
     AppUptime = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_app_uptime_seconds",
+            Name: "{project_name}_app_uptime_seconds",
             Help: "Application uptime in seconds",
         },
     )
 
     AppStartTime = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_app_start_timestamp",
+            Name: "{project_name}_app_start_timestamp",
             Help: "Application start timestamp",
         },
     )
@@ -32882,7 +33685,7 @@ import (
     "strconv"
     "time"
 
-    "github.com/casapps/caspbx/src/server/metrics"
+    "github.com/{project_org}/{internal_name}/src/server/metrics"
 )
 
 // metricsMiddleware records HTTP metrics for all requests
@@ -32966,7 +33769,7 @@ import (
     "database/sql"
     "time"
 
-    "github.com/casapps/caspbx/src/server/metrics"
+    "github.com/{project_org}/{internal_name}/src/server/metrics"
 )
 
 // MetricsDB wraps sql.DB with metrics
@@ -33067,7 +33870,7 @@ package cache
 import (
     "time"
 
-    "github.com/casapps/caspbx/src/server/metrics"
+    "github.com/{project_org}/{internal_name}/src/server/metrics"
 )
 
 // MetricsCache wraps a cache with metrics
@@ -33120,7 +33923,7 @@ package scheduler
 import (
     "time"
 
-    "github.com/casapps/caspbx/src/server/metrics"
+    "github.com/{project_org}/{internal_name}/src/server/metrics"
 )
 
 // RecordTaskStart records when a task starts
@@ -33163,35 +33966,35 @@ var (
     // System metrics
     SystemCPUUsage = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_cpu_usage_percent",
+            Name: "{project_name}_system_cpu_usage_percent",
             Help: "Current CPU usage percentage",
         },
     )
 
     SystemMemoryUsage = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_memory_usage_percent",
+            Name: "{project_name}_system_memory_usage_percent",
             Help: "Current memory usage percentage",
         },
     )
 
     SystemMemoryUsed = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_memory_used_bytes",
+            Name: "{project_name}_system_memory_used_bytes",
             Help: "Memory used in bytes",
         },
     )
 
     SystemMemoryTotal = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_memory_total_bytes",
+            Name: "{project_name}_system_memory_total_bytes",
             Help: "Total memory in bytes",
         },
     )
 
     SystemDiskUsage = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_disk_usage_percent",
+            Name: "{project_name}_system_disk_usage_percent",
             Help: "Disk usage percentage",
         },
         []string{"path"},
@@ -33199,7 +34002,7 @@ var (
 
     SystemDiskUsed = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_disk_used_bytes",
+            Name: "{project_name}_system_disk_used_bytes",
             Help: "Disk used in bytes",
         },
         []string{"path"},
@@ -33207,7 +34010,7 @@ var (
 
     SystemDiskTotal = promauto.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "caspbx_system_disk_total_bytes",
+            Name: "{project_name}_system_disk_total_bytes",
             Help: "Total disk in bytes",
         },
         []string{"path"},
@@ -33216,35 +34019,35 @@ var (
     // Go runtime metrics
     GoGoroutines = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_go_goroutines",
+            Name: "{project_name}_go_goroutines",
             Help: "Number of goroutines",
         },
     )
 
     GoMemAlloc = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_go_mem_alloc_bytes",
+            Name: "{project_name}_go_mem_alloc_bytes",
             Help: "Bytes allocated and in use",
         },
     )
 
     GoMemSys = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "caspbx_go_mem_sys_bytes",
+            Name: "{project_name}_go_mem_sys_bytes",
             Help: "Bytes obtained from system",
         },
     )
 
     GoGCRuns = promauto.NewCounter(
         prometheus.CounterOpts{
-            Name: "caspbx_go_gc_runs_total",
+            Name: "{project_name}_go_gc_runs_total",
             Help: "Total number of GC runs",
         },
     )
 
     GoGCPauseTotal = promauto.NewCounter(
         prometheus.CounterOpts{
-            Name: "caspbx_go_gc_pause_total_seconds",
+            Name: "{project_name}_go_gc_pause_total_seconds",
             Help: "Total GC pause time in seconds",
         },
     )
@@ -33392,35 +34195,35 @@ func StartUptimeUpdater() {
 ## Metrics Endpoint Output
 
 ```
-# HELP caspbx_http_requests_total Total number of HTTP requests
-# TYPE caspbx_http_requests_total counter
-caspbx_http_requests_total{method="GET",path="/api/{api_version}/users",status="200"} 1523
-caspbx_http_requests_total{method="POST",path="/api/{api_version}/users",status="201"} 42
+# HELP {project_name}_http_requests_total Total number of HTTP requests
+# TYPE {project_name}_http_requests_total counter
+{project_name}_http_requests_total{method="GET",path="/api/{api_version}/users",status="200"} 1523
+{project_name}_http_requests_total{method="POST",path="/api/{api_version}/users",status="201"} 42
 
-# HELP caspbx_http_request_duration_seconds HTTP request duration in seconds
-# TYPE caspbx_http_request_duration_seconds histogram
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.01"} 1400
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.1"} 1520
-caspbx_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="+Inf"} 1523
-caspbx_http_request_duration_seconds_sum{method="GET",path="/api/{api_version}/users"} 12.456
-caspbx_http_request_duration_seconds_count{method="GET",path="/api/{api_version}/users"} 1523
+# HELP {project_name}_http_request_duration_seconds HTTP request duration in seconds
+# TYPE {project_name}_http_request_duration_seconds histogram
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.01"} 1400
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.1"} 1520
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="+Inf"} 1523
+{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/{api_version}/users"} 12.456
+{project_name}_http_request_duration_seconds_count{method="GET",path="/api/{api_version}/users"} 1523
 
-# HELP caspbx_db_connections_open Number of open database connections
-# TYPE caspbx_db_connections_open gauge
-caspbx_db_connections_open 5
+# HELP {project_name}_db_connections_open Number of open database connections
+# TYPE {project_name}_db_connections_open gauge
+{project_name}_db_connections_open 5
 
-# HELP caspbx_cache_hits_total Total number of cache hits
-# TYPE caspbx_cache_hits_total counter
-caspbx_cache_hits_total{cache="sessions"} 8234
-caspbx_cache_hits_total{cache="users"} 1523
+# HELP {project_name}_cache_hits_total Total number of cache hits
+# TYPE {project_name}_cache_hits_total counter
+{project_name}_cache_hits_total{cache="sessions"} 8234
+{project_name}_cache_hits_total{cache="users"} 1523
 
-# HELP caspbx_app_info Application information
-# TYPE caspbx_app_info gauge
-caspbx_app_info{version="1.2.3",commit="abc123",build_date="2025-01-15",go_version="go1.23"} 1
+# HELP {project_name}_app_info Application information
+# TYPE {project_name}_app_info gauge
+{project_name}_app_info{version="1.2.3",commit="abc123",build_date="2025-01-15",go_version="<runtime.Version()>"} 1
 
-# HELP caspbx_app_uptime_seconds Application uptime in seconds
-# TYPE caspbx_app_uptime_seconds gauge
-caspbx_app_uptime_seconds 86423.5
+# HELP {project_name}_app_uptime_seconds Application uptime in seconds
+# TYPE {project_name}_app_uptime_seconds gauge
+{project_name}_app_uptime_seconds 86423.5
 ```
 
 ## Alerting Rules (Prometheus)
@@ -33428,13 +34231,13 @@ caspbx_app_uptime_seconds 86423.5
 ```yaml
 # alerts.yml - Example Prometheus alerting rules
 groups:
-  - name: caspbx_alerts
+  - name: {project_name}_alerts
     rules:
       # High error rate
       - alert: HighErrorRate
         expr: |
-          sum(rate(caspbx_http_requests_total{status=~"5.."}[5m]))
-          / sum(rate(caspbx_http_requests_total[5m])) > 0.05
+          sum(rate({project_name}_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate({project_name}_http_requests_total[5m])) > 0.05
         for: 5m
         labels:
           severity: critical
@@ -33445,7 +34248,7 @@ groups:
       # High latency
       - alert: HighLatency
         expr: |
-          histogram_quantile(0.95, rate(caspbx_http_request_duration_seconds_bucket[5m])) > 1
+          histogram_quantile(0.95, rate({project_name}_http_request_duration_seconds_bucket[5m])) > 1
         for: 5m
         labels:
           severity: warning
@@ -33456,7 +34259,7 @@ groups:
       # Database connection pool exhausted
       - alert: DBConnectionPoolExhausted
         expr: |
-          caspbx_db_connections_in_use / caspbx_db_connections_open > 0.9
+          {project_name}_db_connections_in_use / {project_name}_db_connections_open > 0.9
         for: 5m
         labels:
           severity: warning
@@ -33465,7 +34268,7 @@ groups:
 
       # High memory usage
       - alert: HighMemoryUsage
-        expr: caspbx_system_memory_usage_percent > 90
+        expr: {project_name}_system_memory_usage_percent > 90
         for: 10m
         labels:
           severity: warning
@@ -33474,7 +34277,7 @@ groups:
 
       # Disk space low
       - alert: DiskSpaceLow
-        expr: caspbx_system_disk_usage_percent > 85
+        expr: {project_name}_system_disk_usage_percent > 85
         for: 5m
         labels:
           severity: warning
@@ -33483,18 +34286,18 @@ groups:
 
       # Application down
       - alert: ApplicationDown
-        expr: up{job="caspbx"} == 0
+        expr: up{job="{project_name}"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "caspbx is down"
+          summary: "{project_name} is down"
 
       # Goroutine leak
       - alert: GoroutineLeak
         expr: |
-          caspbx_go_goroutines > 1000
-          and increase(caspbx_go_goroutines[1h]) > 100
+          {project_name}_go_goroutines > 1000
+          and increase({project_name}_go_goroutines[1h]) > 100
         for: 30m
         labels:
           severity: warning
@@ -33505,7 +34308,7 @@ groups:
       # Scheduler task failing
       - alert: SchedulerTaskFailing
         expr: |
-          increase(caspbx_scheduler_tasks_total{status="error"}[1h]) > 3
+          increase({project_name}_scheduler_tasks_total{status="error"}[1h]) > 3
         for: 0m
         labels:
           severity: warning
@@ -33517,79 +34320,79 @@ groups:
 
 ```json
 {
-  "title": "CASPBX Metrics",
+  "title": "{PROJECT_NAME} Metrics",
   "panels": [
     {
       "title": "Request Rate",
       "type": "graph",
       "targets": [
-        {"expr": "sum(rate(caspbx_http_requests_total[5m]))"}
+        {"expr": "sum(rate({project_name}_http_requests_total[5m]))"}
       ]
     },
     {
       "title": "Error Rate",
       "type": "graph",
       "targets": [
-        {"expr": "sum(rate(caspbx_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(caspbx_http_requests_total[5m]))"}
+        {"expr": "sum(rate({project_name}_http_requests_total{status=~\"5..\"}[5m])) / sum(rate({project_name}_http_requests_total[5m]))"}
       ]
     },
     {
       "title": "Latency (p50, p95, p99)",
       "type": "graph",
       "targets": [
-        {"expr": "histogram_quantile(0.50, rate(caspbx_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p50"},
-        {"expr": "histogram_quantile(0.95, rate(caspbx_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p95"},
-        {"expr": "histogram_quantile(0.99, rate(caspbx_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p99"}
+        {"expr": "histogram_quantile(0.50, rate({project_name}_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, rate({project_name}_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, rate({project_name}_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p99"}
       ]
     },
     {
       "title": "Active Requests",
       "type": "stat",
       "targets": [
-        {"expr": "caspbx_http_active_requests"}
+        {"expr": "{project_name}_http_active_requests"}
       ]
     },
     {
       "title": "Database Connections",
       "type": "graph",
       "targets": [
-        {"expr": "caspbx_db_connections_open", "legendFormat": "open"},
-        {"expr": "caspbx_db_connections_in_use", "legendFormat": "in_use"}
+        {"expr": "{project_name}_db_connections_open", "legendFormat": "open"},
+        {"expr": "{project_name}_db_connections_in_use", "legendFormat": "in_use"}
       ]
     },
     {
       "title": "Cache Hit Rate",
       "type": "graph",
       "targets": [
-        {"expr": "sum(rate(caspbx_cache_hits_total[5m])) / (sum(rate(caspbx_cache_hits_total[5m])) + sum(rate(caspbx_cache_misses_total[5m])))"}
+        {"expr": "sum(rate({project_name}_cache_hits_total[5m])) / (sum(rate({project_name}_cache_hits_total[5m])) + sum(rate({project_name}_cache_misses_total[5m])))"}
       ]
     },
     {
       "title": "Memory Usage",
       "type": "gauge",
       "targets": [
-        {"expr": "caspbx_system_memory_usage_percent"}
+        {"expr": "{project_name}_system_memory_usage_percent"}
       ]
     },
     {
       "title": "Goroutines",
       "type": "graph",
       "targets": [
-        {"expr": "caspbx_go_goroutines"}
+        {"expr": "{project_name}_go_goroutines"}
       ]
     },
     {
       "title": "Uptime",
       "type": "stat",
       "targets": [
-        {"expr": "caspbx_app_uptime_seconds"}
+        {"expr": "{project_name}_app_uptime_seconds"}
       ]
     }
   ]
 }
 ```
 
-## Admin Panel (/{admin_path}/server/metrics)
+## Admin Panel (/server/{admin_path}/config/metrics)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -33608,7 +34411,7 @@ groups:
 ## Backup Command
 
 ```bash
-caspbx --maintenance backup [filename]
+{project_name} --maintenance backup [filename]
 ```
 
 ### Backup Contents
@@ -33640,7 +34443,7 @@ caspbx --maintenance backup [filename]
 ### Backup Format
 
 - Single `.tar.gz` file (or `.tar.gz.enc` if encrypted)
-- Filename: `caspbx_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc]`
+- Filename: `{project_name}_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc]`
 - Includes manifest with version info
 - Encrypted if backup password was set during setup
 
@@ -33730,8 +34533,8 @@ When `server.compliance.enabled: true`:
 | Action | Location | Notes |
 |--------|----------|-------|
 | Set during setup | Setup wizard Step 4 | Optional (unless compliance) |
-| Set later | `/{admin_path}/server/backup` | Click "Set Encryption Password" |
-| Change password | `/{admin_path}/server/backup` | New backups use new password |
+| Set later | `/server/{admin_path}/config/backup` | Click "Set Encryption Password" |
+| Change password | `/server/{admin_path}/config/backup` | New backups use new password |
 | Remove encryption | Only if compliance disabled | Cannot remove if compliance enabled |
 
 **Important:**
@@ -33743,21 +34546,21 @@ When `server.compliance.enabled: true`:
 
 ```bash
 # If encryption password set during setup:
-caspbx --maintenance backup
+{project_name} --maintenance backup
 # Prompts for password, creates encrypted backup
 
 # Override with explicit password:
-caspbx --maintenance backup --password "mypassword"
+{project_name} --maintenance backup --password "mypassword"
 
 # Restore encrypted backup:
-caspbx --maintenance restore backup.tar.gz.enc
+{project_name} --maintenance restore backup.tar.gz.enc
 # Prompts for password
 ```
 
 **API Backup with Encryption:**
 
 ```
-POST /api/{api_version}/{admin_path}/server/backup
+POST /api/{api_version}/server/{admin_path}/config/backup
 Content-Type: application/json
 
 {
@@ -33782,7 +34585,7 @@ Content-Type: application/json
 
 Shown on:
 - First backup if encryption not configured
-- `/{admin_path}/server/backup` page (dismissable)
+- `/server/{admin_path}/config/backup` page (dismissable)
 
 ### Backup Retention
 
@@ -33818,9 +34621,9 @@ server:
 **Backup Creation Flow (backup_daily task at 02:00):**
 
 ```
-1. Create full backup: caspbx_backup_YYYY-MM-DD.tar.gz[.enc]
+1. Create full backup: {project_name}_backup_YYYY-MM-DD.tar.gz[.enc]
 2. Verify full backup (all checks must pass)
-3. Create daily incremental: caspbx-daily.tar.gz[.enc]
+3. Create daily incremental: {project_name}-daily.tar.gz[.enc]
 4. Verify daily incremental (all checks must pass)
 5. If ALL verifications pass:
    - Apply retention policy (delete old backups per retention settings)
@@ -33890,9 +34693,9 @@ Every backup is verified **immediately after creation** - backups must be 100% w
 
 | File | Description | Retention |
 |------|-------------|-----------|
-| `caspbx_backup_YYYY-MM-DD.tar.gz[.enc]` | Full backup (yesterday's data) | Controlled by `max_backups` |
-| `caspbx-daily.tar.gz[.enc]` | Daily incremental (changes since full) | Always 1 (replaced each run) |
-| `caspbx-hourly.tar.gz[.enc]` | Hourly incremental (if enabled) | Always 1 (replaced each run) |
+| `{project_name}_backup_YYYY-MM-DD.tar.gz[.enc]` | Full backup (yesterday's data) | Controlled by `max_backups` |
+| `{project_name}-daily.tar.gz[.enc]` | Daily incremental (changes since full) | Always 1 (replaced each run) |
+| `{project_name}-hourly.tar.gz[.enc]` | Hourly incremental (if enabled) | Always 1 (replaced each run) |
 
 ### Retention Configuration
 
@@ -34072,7 +34875,7 @@ on a Sunday counts as daily + weekly + monthly + yearly - uses highest priority)
 ## Restore Command
 
 ```bash
-caspbx --maintenance restore <backup-file>
+{project_name} --maintenance restore <backup-file>
 ```
 
 ### Restore Authorization
@@ -34101,16 +34904,16 @@ caspbx --maintenance restore <backup-file>
 
 ```bash
 # Encrypted backup - prompts for password
-caspbx --maintenance restore backup_2025-01-15.tar.gz.enc
+{project_name} --maintenance restore backup_2025-01-15.tar.gz.enc
 Enter backup password: ••••••••••••
 Verifying backup integrity... OK
 Restoring...
 
 # Encrypted backup - password via flag
-caspbx --maintenance restore backup_2025-01-15.tar.gz.enc --password "mypassword"
+{project_name} --maintenance restore backup_2025-01-15.tar.gz.enc --password "mypassword"
 
 # Unencrypted backup - no password needed
-caspbx --maintenance restore backup_2025-01-15.tar.gz
+{project_name} --maintenance restore backup_2025-01-15.tar.gz
 ```
 
 **WebUI Restore:**
@@ -34132,14 +34935,14 @@ caspbx --maintenance restore backup_2025-01-15.tar.gz
 
 ```bash
 # Encrypted backup - password required
-POST /api/{api_version}/{admin_path}/server/backup/restore
+POST /api/{api_version}/server/{admin_path}/config/backup/restore
 {
   "backup_file": "backup_2025-01-15.tar.gz.enc",
   "password": "backup-encryption-password"
 }
 
 # Unencrypted backup - no password
-POST /api/{api_version}/{admin_path}/server/backup/restore
+POST /api/{api_version}/server/{admin_path}/config/backup/restore
 {
   "backup_file": "backup_2025-01-15.tar.gz"
 }
@@ -34179,7 +34982,7 @@ POST /api/{api_version}/{admin_path}/server/backup/restore
 ├─────────────────────────────────────────────────────────────┤
 │  Setup Token: a1b2c3d4e5f67890abcdef1234567890              │
 │                                                             │
-│  Go to {proto}://{fqdn}/{admin_path} and enter this token   │
+│  Go to {proto}://{fqdn}/server/{admin_path} and enter this token   │
 │  to verify you are the server administrator.                │
 │                                                             │
 │  Your existing password and settings will be preserved.     │
@@ -34214,7 +35017,7 @@ POST /api/{api_version}/{admin_path}/server/backup/restore
 ## Admin Recovery Command
 
 ```bash
-caspbx --maintenance setup
+{project_name} --maintenance setup
 ```
 
 **Purpose:** Resets admin credentials and generates a new setup token. This is the ONLY way for a Server Admin to recover access if they have lost their password, API token, AND recovery keys.
@@ -34254,10 +35057,10 @@ caspbx --maintenance setup
 
 ```bash
 # Stop the service first (recommended)
-caspbx --service stop
+{project_name} --service stop
 
 # Run setup reset
-caspbx --maintenance setup
+{project_name} --maintenance setup
 
 # Output:
 # ┌─────────────────────────────────────────────────────────────┐
@@ -34267,8 +35070,8 @@ caspbx --maintenance setup
 # │                                                             │
 # │  Setup Token: a1b2c3d4e5f67890abcdef1234567890              │
 # │                                                             │
-# │  1. Start the service: caspbx --service start        │
-# │  2. Go to: {proto}://{fqdn}/{admin_path}                    │
+# │  1. Start the service: {project_name} --service start        │
+# │  2. Go to: {proto}://{fqdn}/server/{admin_path}                    │
 # │  3. Enter the setup token above                             │
 # │  4. Create new admin account via setup wizard               │
 # │                                                             │
@@ -34276,7 +35079,7 @@ caspbx --maintenance setup
 # └─────────────────────────────────────────────────────────────┘
 
 # Start the service
-caspbx --service start
+{project_name} --service start
 ```
 
 ### Security Considerations
@@ -34299,7 +35102,7 @@ caspbx --service start
 | Admin locked out of 2FA | ✓ Yes (only if no recovery keys) |
 | User forgot password | ✗ No (use password reset) |
 | User locked out | ✗ No (admin can help via UI) |
-| Routine password change | ✗ No (use /{admin_path}/profile) |
+| Routine password change | ✗ No (use /server/{admin_path}/{admin_username}/profile) |
 
 ### Recovery Flow
 
@@ -34311,13 +35114,13 @@ caspbx --service start
 │  Admin locked out (no password, no token, no recovery keys)     │
 │                           │                                     │
 │                           ▼                                     │
-│  Server admin runs: caspbx --maintenance setup           │
+│  Server admin runs: {project_name} --maintenance setup           │
 │                           │                                     │
 │                           ▼                                     │
 │  Admin credentials cleared, new setup token generated           │
 │                           │                                     │
 │                           ▼                                     │
-│  Admin visits /admin and enters setup token                     │
+│  Admin visits /server/{admin_path} and enters setup token       │
 │                           │                                     │
 │                           ▼                                     │
 │  Setup wizard: Create new admin account                         │
@@ -34371,17 +35174,17 @@ caspbx --service start
 
 ```bash
 # Check for updates (no privileges required)
-caspbx --update check
+{project_name} --update check
 
 # Perform update (these are equivalent)
-caspbx --update
-caspbx --update yes
-caspbx --maintenance update
+{project_name} --update
+{project_name} --update yes
+{project_name} --maintenance update
 
 # Switch channels
-caspbx --update branch beta
-caspbx --update branch daily
-caspbx --update branch stable
+{project_name} --update branch beta
+{project_name} --update branch daily
+{project_name} --update branch stable
 ```
 
 ## Self-Update Implementation
@@ -34562,10 +35365,10 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string) (*Releas
     var url string
     switch branch {
     case "stable":
-        url = "https://api.github.com/repos/casapps/caspbx/releases/latest"
+        url = "https://api.github.com/repos/{project_org}/{project_name}/releases/latest"
     default:
         // For beta/daily, get all releases and filter
-        url = "https://api.github.com/repos/casapps/caspbx/releases"
+        url = "https://api.github.com/repos/{project_org}/{project_name}/releases"
     }
 
     req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -34628,7 +35431,7 @@ func DoUpdate(ctx context.Context, release *Release) error {
     }
 
     // Download to temp file
-    tmpFile, err := os.CreateTemp("", "caspbx-update-*")
+    tmpFile, err := os.CreateTemp("", "{project_name}-update-*")
     if err != nil {
         return fmt.Errorf("failed to create temp file: %w", err)
     }
@@ -34679,7 +35482,7 @@ func DoUpdate(ctx context.Context, release *Release) error {
 
 // getBinaryName returns the expected binary name for this platform
 func getBinaryName() string {
-    name := "caspbx-" + runtime.GOOS + "-" + runtime.GOARCH
+    name := "{project_name}-" + runtime.GOOS + "-" + runtime.GOARCH
     if runtime.GOOS == "windows" {
         name += ".exe"
     }
@@ -34735,11 +35538,11 @@ func restartService() error {
 func restartLinuxService() error {
     // Try systemd first
     if _, err := exec.LookPath("systemctl"); err == nil {
-        cmd := exec.Command("systemctl", "restart", "caspbx")
+        cmd := exec.Command("systemctl", "restart", "{project_name}")
         return cmd.Run()
     }
     // Fall back to generic service command
-    cmd := exec.Command("service", "caspbx", "restart")
+    cmd := exec.Command("service", "{project_name}", "restart")
     return cmd.Run()
 }
 
@@ -34748,7 +35551,7 @@ func restartLinuxService() error {
 // +build darwin
 
 func restartDarwinService() error {
-    label := "io.github.casapps.caspbx"
+    label := "{plist_name}"
     // kickstart -k kills existing and starts fresh
     cmd := exec.Command("launchctl", "kickstart", "-k", "system/"+label)
     return cmd.Run()
@@ -34760,14 +35563,14 @@ func restartDarwinService() error {
 
 func restartWindowsService() error {
     // Stop service
-    stopCmd := exec.Command("sc", "stop", "caspbx")
+    stopCmd := exec.Command("sc", "stop", "{project_name}")
     stopCmd.Run() // Ignore error if not running
 
     // Wait for stop
     time.Sleep(2 * time.Second)
 
     // Start service
-    startCmd := exec.Command("sc", "start", "caspbx")
+    startCmd := exec.Command("sc", "start", "{project_name}")
     return startCmd.Run()
 }
 
@@ -34776,7 +35579,7 @@ func restartWindowsService() error {
 // +build freebsd openbsd netbsd
 
 func restartBSDService() error {
-    cmd := exec.Command("service", "caspbx", "restart")
+    cmd := exec.Command("service", "{project_name}", "restart")
     return cmd.Run()
 }
 ```
@@ -34927,7 +35730,7 @@ ON --service --disable:
 ## Service Help Output
 
 ```bash
-$ caspbx --service --help
+$ {project_name} --service --help
 Service management commands:
 
   start       Start the service
@@ -34949,11 +35752,11 @@ Current status:
 ## Maintenance Help Output
 
 ```bash
-$ caspbx --maintenance --help
+$ {project_name} --maintenance --help
 Maintenance commands:
 
   backup [file]     Create backup of all data
-                    Default: {backup_dir}/caspbx-{timestamp}.tar.gz
+                    Default: {backup_dir}/{project_name}-{timestamp}.tar.gz
 
   restore <file>    Restore from backup file
                     Stops server, restores data, restarts server
@@ -34971,19 +35774,19 @@ Maintenance commands:
                     Creates primary Server Admin, configures server
 
 Examples:
-  caspbx --maintenance backup
-  caspbx --maintenance backup /path/to/backup.tar.gz
-  caspbx --maintenance restore /path/to/backup.tar.gz
-  caspbx --maintenance update check
-  caspbx --maintenance update yes
-  caspbx --maintenance mode development
-  caspbx --maintenance setup
+  {project_name} --maintenance backup
+  {project_name} --maintenance backup /path/to/backup.tar.gz
+  {project_name} --maintenance restore /path/to/backup.tar.gz
+  {project_name} --maintenance update check
+  {project_name} --maintenance update yes
+  {project_name} --maintenance mode development
+  {project_name} --maintenance setup
 ```
 
 ## Shell Help Output
 
 ```bash
-$ caspbx --shell --help
+$ {project_name} --shell --help
 Shell integration commands:
 
   completions [SHELL]   Print shell completion script
@@ -34995,21 +35798,21 @@ Shell integration commands:
 
 Usage:
   # Add to shell profile for persistent completions
-  caspbx --shell init >> ~/.bashrc      # bash
-  caspbx --shell init >> ~/.zshrc       # zsh
-  caspbx --shell init >> ~/.config/fish/config.fish  # fish
+  {project_name} --shell init >> ~/.bashrc      # bash
+  {project_name} --shell init >> ~/.zshrc       # zsh
+  {project_name} --shell init >> ~/.config/fish/config.fish  # fish
 
   # Or eval directly for current session
-  eval "$(caspbx --shell init)"
+  eval "$({project_name} --shell init)"
 
   # Generate completion script only
-  caspbx --shell completions bash > /etc/bash_completion.d/caspbx
+  {project_name} --shell completions bash > /etc/bash_completion.d/{project_name}
 ```
 
 ## Update Help Output
 
 ```bash
-$ caspbx --update --help
+$ {project_name} --update --help
 Update management:
 
   check                 Check for available updates
@@ -35024,9 +35827,9 @@ Update management:
                         daily  - Daily builds (development)
 
 Examples:
-  caspbx --update check
-  caspbx --update yes
-  caspbx --update branch beta
+  {project_name} --update check
+  {project_name} --update yes
+  {project_name} --update branch beta
 
 Current:
   Version:  {projectversion}
@@ -35037,12 +35840,12 @@ Current:
 ## CLI Admin Help Output
 
 ```bash
-$ caspbx-cli --admin --help
+$ {project_name}-cli --admin --help
 Admin CLI - manage users, organizations, and API tokens.
 
 AUTHENTICATION REQUIRED:
   Admin token must be set and valid. Use one of:
-  1. Environment variable: CASPBX_TOKEN=adm_xxx...
+  1. Environment variable: {PROJECT_NAME}_TOKEN=adm_xxx...
   2. Flag: --token adm_xxx...
 
   Token must have admin scope (prefix: adm_). User tokens (usr_) will be rejected.
@@ -35079,16 +35882,16 @@ Global Flags:
   --quiet               Suppress non-essential output
 
 Examples:
-  caspbx-cli --admin user list
-  caspbx-cli --admin user create newuser
-  caspbx-cli --admin org create myorg
-  caspbx-cli --admin token create "CI Token"
+  {project_name}-cli --admin user list
+  {project_name}-cli --admin user create newuser
+  {project_name}-cli --admin org create myorg
+  {project_name}-cli --admin token create "CI Token"
 ```
 
 ## CLI Admin User Help Output
 
 ```bash
-$ caspbx-cli --admin user --help
+$ {project_name}-cli --admin user --help
 User management commands:
 
   list                  List all users
@@ -35118,18 +35921,18 @@ User management commands:
                         Disable two-factor authentication for user
 
 Examples:
-  caspbx-cli --admin user list
-  caspbx-cli --admin user list --status suspended
-  caspbx-cli --admin user get johndoe
-  caspbx-cli --admin user create johndoe --email john@example.com
-  caspbx-cli --admin user suspend johndoe
-  caspbx-cli --admin user reset-password johndoe
+  {project_name}-cli --admin user list
+  {project_name}-cli --admin user list --status suspended
+  {project_name}-cli --admin user get johndoe
+  {project_name}-cli --admin user create johndoe --email john@example.com
+  {project_name}-cli --admin user suspend johndoe
+  {project_name}-cli --admin user reset-password johndoe
 ```
 
 ## CLI Admin Org Help Output
 
 ```bash
-$ caspbx-cli --admin org --help
+$ {project_name}-cli --admin org --help
 Organization management commands:
 
   list                  List all organizations
@@ -35158,16 +35961,16 @@ Organization management commands:
     --force             Skip confirmation prompt
 
 Examples:
-  caspbx-cli --admin org list
-  caspbx-cli --admin org create myorg --display-name "My Organization"
-  caspbx-cli --admin org members myorg
-  caspbx-cli --admin org add-member myorg johndoe --role admin
+  {project_name}-cli --admin org list
+  {project_name}-cli --admin org create myorg --display-name "My Organization"
+  {project_name}-cli --admin org members myorg
+  {project_name}-cli --admin org add-member myorg johndoe --role admin
 ```
 
 ## CLI Admin Token Help Output
 
 ```bash
-$ caspbx-cli --admin token --help
+$ {project_name}-cli --admin token --help
 API token management commands:
 
   list                  List all tokens
@@ -35185,21 +35988,21 @@ API token management commands:
     --format FORMAT     Output format (table|json|yaml)
 
 Examples:
-  caspbx-cli --admin token list
-  caspbx-cli --admin token create "CI Token" --expires 90d --scopes read,write
-  caspbx-cli --admin token revoke tk_abc123
-  caspbx-cli --admin token info tk_abc123
+  {project_name}-cli --admin token list
+  {project_name}-cli --admin token create "CI Token" --expires 90d --scopes read,write
+  {project_name}-cli --admin token revoke tk_abc123
+  {project_name}-cli --admin token info tk_abc123
 ```
 
 ## CLI Admin Server Help Output
 
 ```bash
-$ caspbx-cli --admin server --help
+$ {project_name}-cli --admin server --help
 Server admin CLI - server configuration and management.
 
 AUTHENTICATION REQUIRED:
   Server admin token must be set and valid. Use one of:
-  1. Environment variable: CASPBX_TOKEN=adm_xxx...
+  1. Environment variable: {PROJECT_NAME}_TOKEN=adm_xxx...
   2. Flag: --token adm_xxx...
 
   Token must have Server Admin scope (prefix: adm_). User tokens (usr_) and
@@ -35236,20 +36039,20 @@ Global Flags:
   --format {table|json|yaml}  Output format (default: table)
 
 Examples:
-  caspbx-cli --admin server config list
-  caspbx-cli --admin server config get registration.mode
-  caspbx-cli --admin server config set registration.mode private
-  caspbx-cli --admin server admin list
-  caspbx-cli --admin server stats overview
-  caspbx-cli --admin server blocklist list
-  caspbx-cli --admin server blocklist update
-  caspbx-cli --admin server blocklist check 1.2.3.4
+  {project_name}-cli --admin server config list
+  {project_name}-cli --admin server config get registration.mode
+  {project_name}-cli --admin server config set registration.mode private
+  {project_name}-cli --admin server admin list
+  {project_name}-cli --admin server stats overview
+  {project_name}-cli --admin server blocklist list
+  {project_name}-cli --admin server blocklist update
+  {project_name}-cli --admin server blocklist check 1.2.3.4
 ```
 
 ## CLI Admin Server Config Help Output
 
 ```bash
-$ caspbx-cli --admin server config --help
+$ {project_name}-cli --admin server config --help
 Server configuration commands:
 
   get [key]             Get configuration value
@@ -35276,17 +36079,17 @@ Common Configuration Keys:
   email.from_address    From email address
 
 Examples:
-  caspbx-cli --admin server config list
-  caspbx-cli --admin server config get registration.mode
-  caspbx-cli --admin server config set registration.mode private
-  caspbx-cli --admin server config set branding.title "My Server"
-  caspbx-cli --admin server config reset registration.mode
+  {project_name}-cli --admin server config list
+  {project_name}-cli --admin server config get registration.mode
+  {project_name}-cli --admin server config set registration.mode private
+  {project_name}-cli --admin server config set branding.title "My Server"
+  {project_name}-cli --admin server config reset registration.mode
 ```
 
 ## CLI Admin Server Admin Help Output
 
 ```bash
-$ caspbx-cli --admin server admin --help
+$ {project_name}-cli --admin server admin --help
 Server admin management commands:
 
   list                  List all server admins
@@ -35307,16 +36110,16 @@ Server admin management commands:
 Note: Primary server admin cannot be removed. Use --maintenance setup for recovery.
 
 Examples:
-  caspbx-cli --admin server admin list
-  caspbx-cli --admin server admin invite newadmin --email admin@example.com
-  caspbx-cli --admin server admin remove oldadmin
-  caspbx-cli --admin server admin reset-password adminuser
+  {project_name}-cli --admin server admin list
+  {project_name}-cli --admin server admin invite newadmin --email admin@example.com
+  {project_name}-cli --admin server admin remove oldadmin
+  {project_name}-cli --admin server admin reset-password adminuser
 ```
 
 ## CLI Admin Server Stats Help Output
 
 ```bash
-$ caspbx-cli --admin server stats --help
+$ {project_name}-cli --admin server stats --help
 Server statistics commands:
 
   overview              General server statistics
@@ -35336,24 +36139,24 @@ Flags:
   --period PERIOD       Time period (1h|24h|7d|30d, default: 24h)
 
 Examples:
-  caspbx-cli --admin server stats overview
-  caspbx-cli --admin server stats users --period 30d
-  caspbx-cli --admin server stats storage --format json
-  caspbx-cli --admin server stats performance
+  {project_name}-cli --admin server stats overview
+  {project_name}-cli --admin server stats users --period 30d
+  {project_name}-cli --admin server stats storage --format json
+  {project_name}-cli --admin server stats performance
 ```
 
 ## System User Requirements
 
 | Requirement | Value |
 |-------------|-------|
-| Username | `caspbx` |
-| Group | `caspbx` |
+| Username | `{project_name}` |
+| Group | `{project_name}` |
 | UID/GID | **Must match** - same value for both UID and GID |
 | UID/GID Range | **200-899** (safe system range, avoids well-known service IDs) |
 | Shell | `/sbin/nologin` or `/usr/sbin/nologin` |
-| Home | Config directory (`/etc/casapps/caspbx`) or data directory (`/var/lib/casapps/caspbx`) |
+| Home | Config directory (`/etc/{project_org}/{internal_name}`) or data directory (`/var/lib/{project_org}/{internal_name}`) |
 | Type | System user (no password, no login) |
-| Gecos | `caspbx service account` |
+| Gecos | `{internal_name} service account` |
 
 ### UID/GID Selection Logic
 
@@ -35451,28 +36254,34 @@ func findAvailableSystemID() (int, error) {
 **Linux:**
 ```bash
 # Create group with specific GID
-groupadd --system --gid {id} caspbx
+groupadd --system --gid {id} {internal_name}
 
 # Create user with matching UID, same primary group
 useradd --system --uid {id} --gid {id} \
-  --home-dir /etc/casapps/caspbx \
+  --home-dir /etc/{project_org}/{internal_name} \
   --shell /sbin/nologin \
-  --comment "caspbx service account" \
-  caspbx
+  --comment "{internal_name} service account" \
+  {internal_name}
 ```
+
+**Default rule:** create and use a dedicated service user/group.
+
+**Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
+
+**Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
 
 ### macOS Service Account
 
-**macOS services start as root, binary drops to dedicated user after port binding.**
+**Default:** macOS services start as root only for privileged startup, then drop to dedicated user after port binding.
 
 | Phase | Running As | Actions |
 |-------|-----------|---------|
 | Start | root | launchd starts binary as root |
 | Bind | root | Bind privileged ports (<1024) |
-| Drop | root→`caspbx` | Binary drops privileges |
-| Run | `caspbx` | Serve requests as unprivileged user |
+| Drop | root→`{project_name}` | Binary drops privileges |
+| Run | `{project_name}` | Serve requests as unprivileged user |
 
-**The `caspbx` user is created automatically by the binary on first startup.**
+**The `{project_name}` user is created automatically by the binary on first startup.**
 
 macOS uses `dscl` (Directory Service Command Line) to create system users. The user is hidden from login screen and has no shell access.
 
@@ -35494,21 +36303,21 @@ Same reserved IDs as Linux apply (see Reserved/Well-Known UIDs table above).
 # Start at 399, work down, skip reserved IDs
 
 # Create group with specific GID
-dscl . -create /Groups/caspbx
-dscl . -create /Groups/caspbx PrimaryGroupID {id}
-dscl . -create /Groups/caspbx Password "*"
+dscl . -create /Groups/{project_name}
+dscl . -create /Groups/{project_name} PrimaryGroupID {id}
+dscl . -create /Groups/{project_name} Password "*"
 
 # Create user with matching UID
-dscl . -create /Users/caspbx
-dscl . -create /Users/caspbx UniqueID {id}
-dscl . -create /Users/caspbx PrimaryGroupID {id}
-dscl . -create /Users/caspbx UserShell /usr/bin/false
-dscl . -create /Users/caspbx RealName "caspbx service account"
-dscl . -create /Users/caspbx NFSHomeDirectory /usr/local/var/casapps/caspbx
-dscl . -create /Users/caspbx Password "*"
+dscl . -create /Users/{internal_name}
+dscl . -create /Users/{internal_name} UniqueID {id}
+dscl . -create /Users/{internal_name} PrimaryGroupID {id}
+dscl . -create /Users/{internal_name} UserShell /usr/bin/false
+dscl . -create /Users/{internal_name} RealName "{internal_name} service account"
+dscl . -create /Users/{internal_name} NFSHomeDirectory /usr/local/var/{project_org}/{internal_name}
+dscl . -create /Users/{internal_name} Password "*"
 
 # Hide user from login window
-dscl . -create /Users/caspbx IsHidden 1
+dscl . -create /Users/{internal_name} IsHidden 1
 ```
 
 **launchd plist (runs as root, binary drops privileges):**
@@ -35518,14 +36327,14 @@ dscl . -create /Users/caspbx IsHidden 1
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>io.github.casapps.caspbx</string>
+    <string>{plist_name}</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/caspbx</string>
+        <string>/usr/local/bin/{project_name}</string>
     </array>
 
-    <!-- No UserName/GroupName - starts as root, binary drops to caspbx user -->
+    <!-- No UserName/GroupName - starts as root, binary drops to {internal_name} user -->
 
     <key>RunAtLoad</key>
     <true/>
@@ -35534,10 +36343,10 @@ dscl . -create /Users/caspbx IsHidden 1
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/var/log/casapps/caspbx/stdout.log</string>
+    <string>/var/log/{project_org}/{internal_name}/stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/casapps/caspbx/stderr.log</string>
+    <string>/var/log/{project_org}/{internal_name}/stderr.log</string>
 </dict>
 </plist>
 ```
@@ -35546,11 +36355,11 @@ dscl . -create /Users/caspbx IsHidden 1
 
 | Directory | Path | Purpose |
 |-----------|------|---------|
-| Binary | `/usr/local/bin/caspbx` | Executable |
-| Config | `/usr/local/etc/casapps/caspbx/` | Configuration files |
-| Data | `/usr/local/var/casapps/caspbx/` | Application data |
-| Logs | `/usr/local/var/log/casapps/caspbx/` | Log files |
-| launchd plist | `/Library/LaunchDaemons/io.github.casapps.caspbx.plist` | Service definition |
+| Binary | `/usr/local/bin/{project_name}` | Executable |
+| Config | `/usr/local/etc/{project_org}/{internal_name}/` | Configuration files |
+| Data | `/usr/local/var/{project_org}/{internal_name}/` | Application data |
+| Logs | `/usr/local/var/log/{project_org}/{internal_name}/` | Log files |
+| launchd plist | `/Library/LaunchDaemons/{plist_name}.plist` | Service definition |
 
 **Go Implementation (macOS):**
 ```go
@@ -35609,11 +36418,11 @@ func createMacOSServiceUser(name string, id int, homeDir string) error {
 **FreeBSD:**
 ```bash
 # Create user and group with matching ID
-pw groupadd -n caspbx -g {id}
-pw useradd -n caspbx -u {id} -g {id} \
-  -d /var/lib/casapps/caspbx \
+pw groupadd -n {internal_name} -g {id}
+pw useradd -n {internal_name} -u {id} -g {id} \
+  -d /var/lib/{project_org}/{internal_name} \
   -s /usr/sbin/nologin \
-  -c "caspbx service account"
+  -c "{internal_name} service account"
 ```
 
 ### Windows Service Account
@@ -35633,33 +36442,33 @@ pw useradd -n caspbx -u {id} -g {id} \
 
 Virtual Service Accounts are automatically managed by Windows, require no password management, and have minimal privileges. They are created automatically when the service is installed.
 
-**Service Account Format:** `NT SERVICE\caspbx`
+**Service Account Format:** `NT SERVICE\{project_name}`
 
 ```powershell
 # Create service with Virtual Service Account (automatic)
-New-Service -Name "caspbx" `
-  -BinaryPathName "C:\Program Files\casapps\caspbx\caspbx.exe" `
-  -DisplayName "caspbx" `
-  -Description "caspbx service" `
+New-Service -Name "{project_name}" `
+  -BinaryPathName "C:\Program Files\{project_org}\{internal_name}\{project_name}.exe" `
+  -DisplayName "{project_name}" `
+  -Description "{project_name} service" `
   -StartupType Automatic
 
-# Service automatically runs as NT SERVICE\caspbx
+# Service automatically runs as NT SERVICE\{project_name}
 # No user creation needed - Windows manages it
 ```
 
 **Directory Permissions:**
 ```powershell
 # Grant Virtual Service Account access to config/data directories
-$acl = Get-Acl "C:\ProgramData\casapps\caspbx"
+$acl = Get-Acl "C:\ProgramData\{project_org}\{internal_name}"
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    "NT SERVICE\caspbx",
+    "NT SERVICE\{project_name}",
     "FullControl",
     "ContainerInherit,ObjectInherit",
     "None",
     "Allow"
 )
 $acl.SetAccessRule($rule)
-Set-Acl "C:\ProgramData\casapps\caspbx" $acl
+Set-Acl "C:\ProgramData\{project_org}\{internal_name}" $acl
 ```
 
 **Go Implementation (Windows):**
@@ -35680,11 +36489,11 @@ func installWindowsService() error {
     // Create service - runs as Virtual Service Account by default
     // when ServiceStartName is empty or "NT SERVICE\{name}"
     s, err := m.CreateService(
-        "caspbx",
+        "{project_name}",
         exePath,
         mgr.Config{
-            DisplayName:     "caspbx",
-            Description:     "caspbx service",
+            DisplayName:     "{project_name}",
+            Description:     "{project_name} service",
             StartType:       mgr.StartAutomatic,
             // Empty = Virtual Service Account
             ServiceStartName: "",
@@ -35703,17 +36512,17 @@ func installWindowsService() error {
 
 | Directory | Path | Purpose |
 |-----------|------|---------|
-| Binary | `C:\Program Files\casapps\caspbx\` | Executable |
-| Config | `C:\ProgramData\casapps\caspbx\config\` | Configuration files |
-| Data | `C:\ProgramData\casapps\caspbx\data\` | Application data |
-| Logs | `C:\ProgramData\casapps\caspbx\logs\` | Log files |
+| Binary | `C:\Program Files\{project_org}\{internal_name}\` | Executable |
+| Config | `C:\ProgramData\{project_org}\{internal_name}\config\` | Configuration files |
+| Data | `C:\ProgramData\{project_org}\{internal_name}\data\` | Application data |
+| Logs | `C:\ProgramData\{project_org}\{internal_name}\logs\` | Log files |
 
 ### Home Directory Selection
 
 | Directory | Use When |
 |-----------|----------|
-| Config dir (`/etc/casapps/caspbx`) | Default - user needs access to config files |
-| Data dir (`/var/lib/casapps/caspbx`) | When data dir contains user-writable content |
+| Config dir (`/etc/{project_org}/{internal_name}`) | Default - user needs access to config files |
+| Data dir (`/var/lib/{project_org}/{internal_name}`) | When data dir contains user-writable content |
 
 **Note:** Home directory must exist before user creation. Create directories first, then user, then set ownership.
 
@@ -35741,25 +36550,27 @@ func installWindowsService() error {
 
 ## Service Templates
 
-**Unix: Service starts as root, binary drops to `caspbx` user after port binding.**
-**Windows: Service runs as Virtual Service Account (`NT SERVICE\caspbx`).**
+**Unix default:** service starts elevated only for privileged startup, then drops to `{project_name}` user after port binding.
+**Windows: Service runs as Virtual Service Account (`NT SERVICE\{internal_name}`).**
 
 This allows any port configuration without service file changes.
 
+**Exception:** if IDEA.md explicitly requires permanent root, the service file and documentation MUST say so and explain why privilege drop is not possible.
+
 ### systemd (Linux)
 
-**Installation path:** `/etc/systemd/system/caspbx.service`
+**Installation path:** `/etc/systemd/system/{internal_name}.service`
 
 ```ini
 [Unit]
-Description=caspbx service
-Documentation=https://casapps.github.io/caspbx
+Description={project_name} service
+Documentation=https://{project_org}.github.io/{project_name}
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/caspbx
+ExecStart=/usr/local/bin/{project_name}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -35769,10 +36580,10 @@ StandardError=journal
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/etc/casapps/caspbx
-ReadWritePaths=/var/lib/casapps/caspbx
-ReadWritePaths=/var/cache/casapps/caspbx
-ReadWritePaths=/var/log/casapps/caspbx
+ReadWritePaths=/etc/{project_org}/{internal_name}
+ReadWritePaths=/var/lib/{project_org}/{internal_name}
+ReadWritePaths=/var/cache/{project_org}/{internal_name}
+ReadWritePaths=/var/log/{project_org}/{internal_name}
 
 [Install]
 WantedBy=multi-user.target
@@ -35780,22 +36591,22 @@ WantedBy=multi-user.target
 
 ### OpenRC (Alpine, Gentoo, Devuan)
 
-**Installation path:** `/etc/init.d/caspbx` (executable shell script)
+**Installation path:** `/etc/init.d/{internal_name}` (executable shell script)
 
 ```sh
 #!/sbin/openrc-run
-# Service identity comes from caspbx so config_dir/data_dir paths stay
-# stable across binary renames (see PART 0 → "Why `caspbx` exists separately from `caspbx`").
+# Service identity comes from {internal_name} so config_dir/data_dir paths stay
+# stable across binary renames (see PART 0 → "Why `{internal_name}` exists separately from `{project_name}`").
 
-name="caspbx"
+name="{internal_name}"
 description="{app_name}"
-command="/usr/local/bin/caspbx"   # actual binary (may differ from caspbx after rename)
+command="/usr/local/bin/{project_name}"   # actual binary (may differ from {internal_name} after rename)
 command_args=""
-command_user="caspbx:caspbx"
-pidfile="/var/run/casapps/caspbx.pid"
+command_user="{internal_name}:{internal_name}"
+pidfile="/var/run/{project_org}/{internal_name}.pid"
 command_background=true
-output_log="/var/log/casapps/caspbx/server.log"
-error_log="/var/log/casapps/caspbx/error.log"
+output_log="/var/log/{project_org}/{internal_name}/server.log"
+error_log="/var/log/{project_org}/{internal_name}/error.log"
 
 depend() {
     need net
@@ -35804,36 +36615,36 @@ depend() {
 }
 
 start_pre() {
-    checkpath -d -m 0755 -o caspbx:caspbx /var/run/casapps
-    checkpath -d -m 0755 -o caspbx:caspbx /var/log/casapps/caspbx
+    checkpath -d -m 0755 -o {internal_name}:{internal_name} /var/run/{project_org}
+    checkpath -d -m 0755 -o {internal_name}:{internal_name} /var/log/{project_org}/{internal_name}
 }
 ```
 
 **Commands:**
 ```bash
 # Enable at boot
-sudo rc-update add caspbx default
+sudo rc-update add {internal_name} default
 
 # Start / stop / restart / status
-sudo rc-service caspbx start
-sudo rc-service caspbx stop
-sudo rc-service caspbx restart
-sudo rc-service caspbx status
+sudo rc-service {internal_name} start
+sudo rc-service {internal_name} stop
+sudo rc-service {internal_name} restart
+sudo rc-service {internal_name} status
 
 # Disable at boot
-sudo rc-update del caspbx default
+sudo rc-update del {internal_name} default
 ```
 
 ### SysVinit (legacy Linux, init.d)
 
-**Installation path:** `/etc/init.d/caspbx` (executable shell script — same path as OpenRC; only one of the two is installed per host based on detection)
+**Installation path:** `/etc/init.d/{internal_name}` (executable shell script — same path as OpenRC; only one of the two is installed per host based on detection)
 
 **Detection:** the binary picks SysVinit only when `/sbin/openrc-run` is absent, `systemctl` is absent, and `/etc/init.d/` exists with a working `update-rc.d` or `chkconfig`.
 
 ```sh
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          caspbx
+# Provides:          {internal_name}
 # Required-Start:    $network $remote_fs $syslog
 # Required-Stop:     $network $remote_fs $syslog
 # Default-Start:     2 3 4 5
@@ -35842,11 +36653,11 @@ sudo rc-update del caspbx default
 # Description:       {app_name} daemon
 ### END INIT INFO
 
-NAME=caspbx
-DAEMON=/usr/local/bin/caspbx
-DAEMON_USER=caspbx
-PIDFILE=/var/run/casapps/caspbx.pid
-LOGFILE=/var/log/casapps/caspbx/server.log
+NAME={internal_name}
+DAEMON=/usr/local/bin/{project_name}
+DAEMON_USER={internal_name}
+PIDFILE=/var/run/{project_org}/{internal_name}.pid
+LOGFILE=/var/log/{project_org}/{internal_name}/server.log
 
 case "$1" in
     start)
@@ -35888,28 +36699,28 @@ exit 0
 
 ```bash
 # Enable at boot (Debian-style)
-sudo update-rc.d caspbx defaults
+sudo update-rc.d {internal_name} defaults
 
 # Enable at boot (RHEL-style)
-sudo chkconfig --add caspbx
-sudo chkconfig caspbx on
+sudo chkconfig --add {internal_name}
+sudo chkconfig {internal_name} on
 
 # Start / stop / restart / status
-sudo /etc/init.d/caspbx start
-sudo /etc/init.d/caspbx stop
-sudo /etc/init.d/caspbx restart
-sudo /etc/init.d/caspbx status
+sudo /etc/init.d/{internal_name} start
+sudo /etc/init.d/{internal_name} stop
+sudo /etc/init.d/{internal_name} restart
+sudo /etc/init.d/{internal_name} status
 
 # Or via service(8)
-sudo service caspbx start
+sudo service {internal_name} start
 ```
 
 ### runit (Linux)
 
-**Installation path:** `/etc/sv/caspbx/`
+**Installation path:** `/etc/sv/{project_name}/`
 
 ```
-/etc/sv/caspbx/
+/etc/sv/{project_name}/
 ├── run           # Main service script
 ├── log/
 │   └── run       # Logging script
@@ -35919,31 +36730,31 @@ sudo service caspbx start
 **run script:**
 ```bash
 #!/bin/sh
-exec /usr/local/bin/caspbx 2>&1
+exec /usr/local/bin/{project_name} 2>&1
 ```
 
 **log/run script:**
 ```bash
 #!/bin/sh
-exec svlogd -tt /var/log/casapps/caspbx
+exec svlogd -tt /var/log/{project_org}/{internal_name}
 ```
 
 ### rc.d (FreeBSD)
 
-**Installation path:** `/usr/local/etc/rc.d/caspbx`
+**Installation path:** `/usr/local/etc/rc.d/{internal_name}`
 
 ```bash
 #!/bin/sh
 
-# PROVIDE: caspbx
+# PROVIDE: {project_name}
 # REQUIRE: NETWORKING
 # KEYWORD: shutdown
 
 . /etc/rc.subr
 
-name="caspbx"
-rcvar="caspbx_enable"
-command="/usr/local/bin/caspbx"
+name="{project_name}"
+rcvar="{project_name}_enable"
+command="/usr/local/bin/{project_name}"
 
 load_rc_config $name
 run_rc_command "$1"
@@ -35951,7 +36762,7 @@ run_rc_command "$1"
 
 ### launchd (macOS)
 
-**Installation path:** `/Library/LaunchDaemons/io.github.casapps.caspbx.plist`
+**Installation path:** `/Library/LaunchDaemons/{plist_name}.plist`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35959,19 +36770,19 @@ run_rc_command "$1"
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>io.github.casapps.caspbx</string>
+    <string>{plist_name}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/caspbx</string>
+        <string>/usr/local/bin/{project_name}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/var/log/casapps/caspbx/stdout.log</string>
+    <string>/var/log/{project_org}/{internal_name}/stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/casapps/caspbx/stderr.log</string>
+    <string>/var/log/{project_org}/{internal_name}/stderr.log</string>
 </dict>
 </plist>
 ```
@@ -35979,13 +36790,13 @@ run_rc_command "$1"
 **Commands:**
 ```bash
 # Load and start service
-sudo launchctl load /Library/LaunchDaemons/io.github.casapps.caspbx.plist
+sudo launchctl load /Library/LaunchDaemons/{plist_name}.plist
 
 # Unload service
-sudo launchctl unload /Library/LaunchDaemons/io.github.casapps.caspbx.plist
+sudo launchctl unload /Library/LaunchDaemons/{plist_name}.plist
 
 # Check status
-sudo launchctl list | grep caspbx
+sudo launchctl list | grep {project_name}
 ```
 
 ### Windows Service
@@ -35994,7 +36805,7 @@ sudo launchctl list | grep caspbx
 
 | Account | Description |
 |---------|-------------|
-| `NT SERVICE\caspbx` | Virtual Service Account - auto-managed by Windows |
+| `NT SERVICE\{internal_name}` | Virtual Service Account - auto-managed by Windows |
 
 Use `golang.org/x/sys/windows/svc` for Windows service integration:
 
@@ -36004,7 +36815,7 @@ Use `golang.org/x/sys/windows/svc` for Windows service integration:
 import "golang.org/x/sys/windows/svc"
 
 func runAsService() error {
-    return svc.Run("caspbx", &windowsService{})
+    return svc.Run("{project_name}", &windowsService{})
 }
 
 type windowsService struct{}
@@ -36038,7 +36849,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 | Target | Purpose | Output Location | When to Use |
 |--------|---------|-----------------|-------------|
-| `dev` | Quick development build | `${TMPDIR}/$CASAPPS/$CASPBX-XXXXXX/` | Active coding, quick tests |
+| `dev` | Quick development build | `${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/` | Active coding, quick tests |
 | `local` | Production test build | `binaries/` (with version) | Test prod builds locally |
 | `build` | Full release (all 8 platforms) | `binaries/` | Before release |
 | `test` | Run unit tests | Coverage report | After code changes |
@@ -36051,19 +36862,22 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 ### Version File: `release.txt`
 
-- Source of truth for stable version (see PART 13)
+- Canonical single-line version source (see PART 13)
 - Semantic versioning: `MAJOR.MINOR.PATCH` (e.g., `1.2.3`)
+- If `release.txt` exists, it wins over derived/tag/env defaults
 
 ### Official Site File: `site.txt` (Optional)
 
 - **OPTIONAL** - only create if project has an official hosted instance
 - Single line containing the official site URL (e.g., `https://api.example.com`)
 - **NEVER guess or assume** - must be explicitly created by user
-- Used to embed default `--server` URL in CLI/Agent binaries
+- Canonical single-line official site source when present
+- If `site.txt` exists, it wins over `IDEA.md`, README, env vars, CI secrets, and other fallbacks
+- If `site.txt` and `IDEA.md ## Project variables` both exist, `IDEA.md` should match `site.txt`; `site.txt` is the easy-to-update operational override
 - If not present, CLI/Agent users must always specify `--server` flag
 - Sources checked in order:
-  1. Environment variable: `OFFICIALSITE=https://example.com`
-  2. File: `site.txt` in project root
+  1. File: `site.txt` in project root
+  2. Environment variable: `OFFICIALSITE=https://example.com`
   3. CI/CD secrets (repository secrets)
   4. Empty (self-hosted projects)
 
@@ -36152,13 +36966,13 @@ format_version_tag() {
 
 ### Naming Pattern
 
-**Pattern: `caspbx[-type]-{os}-{arch}[.exe]`**
+**Pattern: `{project_name}[-type]-{os}-{arch}[.exe]`**
 
 | Binary | Local Build | Distribution |
 |--------|------------|--------------|
-| **Server** | `caspbx` | `caspbx-{os}-{arch}` |
-| **CLI** | `caspbx-cli` | `caspbx-cli-{os}-{arch}` |
-| **Agent** | `caspbx-agent` | `caspbx-agent-{os}-{arch}` |
+| **Server** | `{project_name}` | `{project_name}-{os}-{arch}` |
+| **CLI** | `{project_name}-cli` | `{project_name}-cli-{os}-{arch}` |
+| **Agent** | `{project_name}-agent` | `{project_name}-agent-{os}-{arch}` |
 
 ### Examples
 
@@ -36172,22 +36986,22 @@ format_version_tag() {
 
 ```
 binaries/
-├── caspbx                      # Local server binary
-├── caspbx-cli                  # Local CLI binary (if src/client/ exists)
-├── caspbx-agent                # Local agent binary (if src/agent/ exists)
-├── caspbx-linux-amd64          # Server distributions
-├── caspbx-linux-arm64
-├── caspbx-darwin-amd64
-├── caspbx-darwin-arm64
-├── caspbx-windows-amd64.exe
-├── caspbx-windows-arm64.exe
-├── caspbx-freebsd-amd64
-├── caspbx-freebsd-arm64
-├── caspbx-cli-linux-amd64      # CLI distributions
-├── caspbx-cli-linux-arm64
+├── {project_name}                      # Local server binary
+├── {project_name}-cli                  # Local CLI binary (if src/client/ exists)
+├── {project_name}-agent                # Local agent binary (if src/agent/ exists)
+├── {project_name}-linux-amd64          # Server distributions
+├── {project_name}-linux-arm64
+├── {project_name}-darwin-amd64
+├── {project_name}-darwin-arm64
+├── {project_name}-windows-amd64.exe
+├── {project_name}-windows-arm64.exe
+├── {project_name}-freebsd-amd64
+├── {project_name}-freebsd-arm64
+├── {project_name}-cli-linux-amd64      # CLI distributions
+├── {project_name}-cli-linux-arm64
 ├── ...
-├── caspbx-agent-linux-amd64    # Agent distributions
-├── caspbx-agent-linux-arm64
+├── {project_name}-agent-linux-amd64    # Agent distributions
+├── {project_name}-agent-linux-arm64
 └── ...
 ```
 
@@ -36195,7 +37009,7 @@ binaries/
 
 | Context | Path |
 |---------|------|
-| Temp build | `$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")` |
+| Temp build | `$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")` |
 
 **If built with musl → strip binary before release. Final name has NO `-musl` suffix.**
 
@@ -36215,8 +37029,8 @@ binaries/
 PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-# Version: env var > release.txt > default
-VERSION ?= $(shell cat release.txt 2>/dev/null || echo "0.1.0")
+# Version precedence: release.txt > env/default fallback
+VERSION := $(shell [ -f release.txt ] && cat release.txt || echo "${VERSION:-0.1.0}")
 
 # Build info - use TZ env var or system timezone
 # Format: "December 4, 2025 at 13:05:13"
@@ -36226,11 +37040,11 @@ COMMIT_ID := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # Official site URL (OPTIONAL - never guess or assume)
 # Sources (in order of precedence):
-#   1. Environment variable: OFFICIALSITE=https://example.com
-#   2. File: site.txt in project root (single line, URL only)
+#   1. File: site.txt in project root (single line, URL only)
+#   2. Environment variable: OFFICIALSITE=https://example.com
 #   3. Empty (self-hosted projects - users must use --server flag)
 # NEVER infer from project name, domain, or any other source
-OFFICIALSITE ?= $(shell [ -f site.txt ] && cat site.txt || echo "")
+OFFICIALSITE := $(shell [ -f site.txt ] && cat site.txt || echo "${OFFICIALSITE:-}")
 
 # Linker flags to embed build info
 LDFLAGS := -s -w \
@@ -36515,8 +37329,8 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 2. Creates cache directories if needed
 3. Downloads Go modules (cached)
 4. Creates `binaries/` directory
-5. Builds local binary: `binaries/caspbx`
-6. Builds all platform binaries: `binaries/caspbx-{os}-{arch}`
+5. Builds local binary: `binaries/{project_name}`
+6. Builds all platform binaries: `binaries/{project_name}-{os}-{arch}`
 7. Uses `CGO_ENABLED=0` for static binaries
 8. Embeds Version, CommitID, BuildDate via `-ldflags`
 9. All builds via Docker (`golang:alpine`)
@@ -36555,9 +37369,9 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 1. Quick build for local development/testing
 2. Builds local platform only (fastest)
 3. No `-ldflags` (version info not embedded)
-4. Outputs to `{tempdir}/casapps/caspbx-XXXXXX/` (isolated, org-identifiable)
+4. Outputs to `{tempdir}/{project_org}/{internal_name}-XXXXXX/` (isolated, org-identifiable)
 5. Uses Docker (`golang:alpine`) - keeps local machine clean
-6. Easy cleanup: `rm -rf "${TMPDIR:-/tmp}"/$CASAPPS.*/` or auto-deleted on reboot
+6. Easy cleanup: `rm -rf "${TMPDIR:-/tmp}"/${PROJECT_ORG}.*/` or auto-deleted on reboot
 
 ### `make local`
 
@@ -36572,7 +37386,7 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 
 | Command | Purpose | Output | When to Use |
 |---------|---------|--------|-------------|
-| `make dev` | **Development & Debugging** | `${TMPDIR}/$CASAPPS/$CASPBX-XXXXXX/` | Active coding, quick tests, debugging |
+| `make dev` | **Development & Debugging** | `${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/` | Active coding, quick tests, debugging |
 | `make local` | **Production Testing** | `binaries/` (with version) | Test production builds locally before release |
 | `make build` | **Full Release Build** | `binaries/` (all 8 platforms) | Before tagging release, cross-platform verification |
 | `make test` | **Unit Tests** | Coverage report | After code changes, before commits |
@@ -36592,13 +37406,13 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 
 ```bash
 # After make dev, test in Docker with debug tools
-BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-*/ 2>/dev/null | head -1)
+BUILD_DIR=$(ls -td ${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-*/ 2>/dev/null | head -1)
 docker run --rm -it \
   -v "$BUILD_DIR:/app" \
   alpine:latest sh -c "
     apk add --no-cache curl bash file jq
-    /app/$CASPBX --help
-    /app/$CASPBX --version
+    /app/${PROJECT_NAME} --help
+    /app/${PROJECT_NAME} --version
     # Debug interactively...
   "
 ```
@@ -36684,34 +37498,34 @@ The **only** time binaries are copied is during CI/CD release process, where the
 
 | File | Description |
 |------|-------------|
-| `caspbx-linux-amd64` | Linux AMD64 server binary |
-| `caspbx-linux-arm64` | Linux ARM64 server binary |
-| `caspbx-darwin-amd64` | macOS AMD64 server binary |
-| `caspbx-darwin-arm64` | macOS ARM64 (Apple Silicon) server binary |
-| `caspbx-windows-amd64.exe` | Windows AMD64 server binary |
-| `caspbx-windows-arm64.exe` | Windows ARM64 server binary |
-| `caspbx-freebsd-amd64` | FreeBSD AMD64 server binary |
-| `caspbx-freebsd-arm64` | FreeBSD ARM64 server binary |
+| `{project_name}-linux-amd64` | Linux AMD64 server binary |
+| `{project_name}-linux-arm64` | Linux ARM64 server binary |
+| `{project_name}-darwin-amd64` | macOS AMD64 server binary |
+| `{project_name}-darwin-arm64` | macOS ARM64 (Apple Silicon) server binary |
+| `{project_name}-windows-amd64.exe` | Windows AMD64 server binary |
+| `{project_name}-windows-arm64.exe` | Windows ARM64 server binary |
+| `{project_name}-freebsd-amd64` | FreeBSD AMD64 server binary |
+| `{project_name}-freebsd-arm64` | FreeBSD ARM64 server binary |
 
 ### CLI Binaries (If Project Has CLI)
 
 | File | Description |
 |------|-------------|
-| `caspbx-cli-linux-amd64` | Linux AMD64 CLI binary |
-| `caspbx-cli-linux-arm64` | Linux ARM64 CLI binary |
-| `caspbx-cli-darwin-amd64` | macOS AMD64 CLI binary |
-| `caspbx-cli-darwin-arm64` | macOS ARM64 (Apple Silicon) CLI binary |
-| `caspbx-cli-windows-amd64.exe` | Windows AMD64 CLI binary |
-| `caspbx-cli-windows-arm64.exe` | Windows ARM64 CLI binary |
-| `caspbx-cli-freebsd-amd64` | FreeBSD AMD64 CLI binary |
-| `caspbx-cli-freebsd-arm64` | FreeBSD ARM64 CLI binary |
+| `{project_name}-cli-linux-amd64` | Linux AMD64 CLI binary |
+| `{project_name}-cli-linux-arm64` | Linux ARM64 CLI binary |
+| `{project_name}-cli-darwin-amd64` | macOS AMD64 CLI binary |
+| `{project_name}-cli-darwin-arm64` | macOS ARM64 (Apple Silicon) CLI binary |
+| `{project_name}-cli-windows-amd64.exe` | Windows AMD64 CLI binary |
+| `{project_name}-cli-windows-arm64.exe` | Windows ARM64 CLI binary |
+| `{project_name}-cli-freebsd-amd64` | FreeBSD AMD64 CLI binary |
+| `{project_name}-cli-freebsd-arm64` | FreeBSD ARM64 CLI binary |
 
 ### Metadata Files (Always)
 
 | File | Description | Example Content |
 |------|-------------|-----------------|
 | `version.txt` | Version string only | `1.2.3`, `20251218060432-beta`, `20251218060432` |
-| `caspbx-{version}-source.tar.gz` | Source code archive | Excludes `.git`, `.github`, `binaries/`, `releases/` |
+| `{project_name}-{version}-source.tar.gz` | Source code archive | Excludes `.git`, `.github`, `binaries/`, `releases/` |
 
 ### version.txt Content
 
@@ -36811,7 +37625,7 @@ The **only** time binaries are copied is during CI/CD release process, where the
 
 ## Docker Directory Structure
 
-All Docker-related files MUST be in `docker/`:
+Docker build/runtime definitions are split between `docker/` and runtime `./volumes/` mounts:
 
 ```
 docker/
@@ -36820,7 +37634,7 @@ docker/
 ├── docker-compose.yml      # Production compose - HUMAN USE ONLY
 ├── docker-compose.dev.yml  # Development compose - HUMAN USE ONLY
 ├── docker-compose.test.yml # Test compose - AI/AUTOMATED TESTING ONLY
-└── file_system/            # Container filesystem overlay (build-time only)
+└── rootfs/
     └── usr/
         └── local/
             └── bin/
@@ -36831,14 +37645,14 @@ docker/
 - Docker build context is project root (`.`)
 - Dockerfile specified with `-f docker/Dockerfile`
 - Multi-stage build: Go binary compiled in builder stage
-- rootfs copied from `docker/file_system/`
+- build-time overlay copied from `docker/rootfs/`
 
 **Rules:**
 - NEVER place Dockerfile or docker-compose.yml in project root
-- ALWAYS use `docker/` directory for all Docker files
+- ALWAYS use `docker/` for Dockerfiles/compose files and `docker/rootfs/` for build-time overlay files
 - ALWAYS use `entrypoint.sh` for container startup
 - ALWAYS use multi-stage build (no pre-built binaries needed)
-- rootfs structure mirrors container filesystem
+- `docker/rootfs/` mirrors the container filesystem
 
 ## Dockerfile Requirements
 
@@ -36851,7 +37665,7 @@ docker/
 | Meta labels | All OCI labels (see below) |
 | Required packages | git, curl, bash, tini, tor |
 | Tor handling | Installed but **binary controls** (see PART 32) |
-| Binary location | `/usr/local/bin/caspbx` |
+| Binary location | `/usr/local/bin/{project_name}` |
 | Entrypoint script | `/usr/local/bin/entrypoint.sh` |
 | Init system | **tini** |
 | Internal port | **80** |
@@ -36863,14 +37677,14 @@ docker/
 
 ```
 /config/
-└── caspbx/                    # App config directory
+└── {project_name}/                    # App config directory
     ├── server.yml                    # Main config file
     ├── ssl/                          # TLS certs and keys
     └── tor/                          # Tor config (binary owns Tor)
         └── torrc                     # Tor configuration
 
 /data/
-├── caspbx/                    # App data directory
+├── {project_name}/                    # App data directory
 │   ├── security/                     # Security databases (downloaded)
 │   │   ├── geoip/                   # GeoIP MMDB files
 │   │   └── blocklists/              # IP/domain blocklists
@@ -36886,26 +37700,26 @@ docker/
 │   ├── postgres/                     # PostgreSQL data (if used)
 │   └── valkey/                       # Valkey/Redis data (if used)
 ├── log/                              # Log files
-│   └── caspbx/               # App logs
+│   └── {project_name}/               # App logs
 │       ├── access.log
 │       ├── error.log
 │       └── tor.log
 └── backups/                          # Backup archives
-    └── caspbx/
+    └── {project_name}/
 ```
 
 **Path Reference:**
 
 | Path | Purpose |
 |------|---------|
-| `/config/caspbx/` | App config (server.yml, ssl/, tor/) |
-| `/data/caspbx/` | App data (uploads, cache, tor/) |
+| `/config/{project_name}/` | App config (server.yml, ssl/, tor/) |
+| `/data/{project_name}/` | App data (uploads, cache, tor/) |
 | `/data/db/sqlite/` | SQLite databases (server.db, users.db) |
 | `/data/db/postgres/` | PostgreSQL data directory |
 | `/data/db/valkey/` | Valkey/Redis persistence |
-| `/data/log/caspbx/` | App logs |
-| `/data/backups/caspbx/` | Backup archives |
-| `/usr/local/bin/caspbx` | Application binary |
+| `/data/log/{project_name}/` | App logs |
+| `/data/backups/{project_name}/` | Backup archives |
+| `/usr/local/bin/{project_name}` | Application binary |
 
 **Host Volume Mapping (docker-compose):**
 
@@ -36913,23 +37727,23 @@ All compose files mount two volumes:
 
 ```yaml
 volumes:
-  - './rootfs/config:/config:z'
-  - './rootfs/data:/data:z'
+  - './volumes/config:/config:z'
+  - './volumes/data:/data:z'
 ```
 
 | Host Path | Container Path |
 |-----------|----------------|
-| `./rootfs/config/` | `/config/` |
-| `./rootfs/data/` | `/data/` |
+| `./volumes/config/` | `/config/` |
+| `./volumes/data/` | `/data/` |
 
 **Expected host directory structure (auto-created by binary on first run):**
 
 ```
-./rootfs/
+./volumes/
 ├── config/
-│   └── caspbx/        # App config
+│   └── {project_name}/        # App config
 └── data/
-    ├── caspbx/        # App data
+    ├── {project_name}/        # App data
     ├── db/
     │   ├── sqlite/           # SQLite databases (server.db, users.db)
     │   ├── postgres/         # PostgreSQL (if multi-service)
@@ -36939,7 +37753,7 @@ volumes:
 ```
 
 **Key principles:**
-- Binary owns Tor completely - Tor dirs are under `caspbx/`, not separate
+- Binary owns Tor completely - Tor dirs are under `{project_name}/`, not separate
 - All SQLite databases in `/data/db/sqlite/` (not scattered)
 - Database names are ALWAYS `server.db` and `users.db` (globally consistent)
 - External services (postgres, valkey) have their own `/data/db/{service}/` dirs
@@ -36952,11 +37766,11 @@ All Dockerfiles MUST include these labels:
 | Label | Value |
 |-------|-------|
 | `maintainer` | `{maintainer_name} <{maintainer_email}>` |
-| `org.opencontainers.image.vendor` | `casapps` |
-| `org.opencontainers.image.authors` | `casapps` |
-| `org.opencontainers.image.title` | `caspbx` |
-| `org.opencontainers.image.base.name` | `caspbx` |
-| `org.opencontainers.image.description` | `caspbx - standard image (alpine)` or `caspbx - all-in-one (...)` |
+| `org.opencontainers.image.vendor` | `{project_org}` |
+| `org.opencontainers.image.authors` | `{project_org}` |
+| `org.opencontainers.image.title` | `{project_name}` |
+| `org.opencontainers.image.base.name` | `{project_name}` |
+| `org.opencontainers.image.description` | `{project_name} - standard image (alpine)` or `{project_name} - all-in-one (...)` |
 | `org.opencontainers.image.licenses` | License (e.g., `MIT`) |
 | `org.opencontainers.image.created` | `${BUILD_DATE}` (ARG) |
 | `org.opencontainers.image.version` | `${VERSION}` (ARG) |
@@ -37030,7 +37844,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
     -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
-    -o /build/binary/caspbx ./src
+    -o /build/binary/{project_name} ./src
 
 # =============================================================================
 # Runtime Stage - Minimal Alpine image
@@ -37045,11 +37859,11 @@ ARG LICENSE=MIT
 
 # Static Labels
 LABEL maintainer="{maintainer_name} <{maintainer_email}>" \
-      org.opencontainers.image.vendor="casapps" \
-      org.opencontainers.image.authors="casapps" \
-      org.opencontainers.image.title="caspbx" \
-      org.opencontainers.image.base.name="caspbx" \
-      org.opencontainers.image.description="caspbx - standard image (alpine)" \
+      org.opencontainers.image.vendor="{project_org}" \
+      org.opencontainers.image.authors="{project_org}" \
+      org.opencontainers.image.title="{project_name}" \
+      org.opencontainers.image.base.name="{project_name}" \
+      org.opencontainers.image.description="{project_name} - standard image (alpine)" \
       org.opencontainers.image.url="{PLATFORM_REPO_URL}" \
       org.opencontainers.image.source="{PLATFORM_REPO_URL}" \
       org.opencontainers.image.documentation="{PLATFORM_REPO_URL}" \
@@ -37077,11 +37891,11 @@ RUN apk add --no-cache \
 # Docker volume mounts auto-create mount points
 
 # Copy binary from builder stage (multi-stage build)
-COPY --from=builder /build/binary/caspbx /usr/local/bin/caspbx
+COPY --from=builder /build/binary/{project_name} /usr/local/bin/{project_name}
 
-# Copy BUILD-TIME overlay (entrypoint.sh) from docker/file_system/ into image
-# Note: This is docker/file_system/ (build context), NOT runtime ./rootfs/ volumes
-COPY docker/file_system/ /
+# Copy BUILD-TIME overlay (entrypoint.sh) from docker/rootfs/ into image
+# Note: This is docker/rootfs/ (build context), NOT runtime ./volumes/ mounts
+COPY docker/rootfs/ /
 
 # Copy Dockerfile to image (for reference and backup)
 COPY docker/Dockerfile /root/Dockerfile
@@ -37104,7 +37918,7 @@ STOPSIGNAL SIGRTMIN+3
 
 # Health check (long start period for services that need initialization)
 HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
-    CMD /usr/local/bin/caspbx --status || exit 1
+    CMD /usr/local/bin/{project_name} --status || exit 1
 
 # Use tini as init with signal propagation
 # -p SIGTERM: propagate SIGTERM to child processes
@@ -37125,7 +37939,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 ### Entrypoint Script (REQUIRED)
 
-**Location:** `docker/file_system/usr/local/bin/entrypoint.sh`
+**Location:** `docker/rootfs/usr/local/bin/entrypoint.sh`
 
 **Entrypoint is MINIMAL.** It only does:
 1. Set environment variables/flags
@@ -37145,7 +37959,7 @@ set -e
 # Binary handles: directories, permissions, user/group, Tor, etc.
 # =============================================================================
 
-APP_NAME="caspbx"
+APP_NAME="{project_name}"
 APP_BIN="/usr/local/bin/${APP_NAME}"
 
 # Export environment defaults (binary reads these)
@@ -37246,23 +38060,23 @@ exec $APP_BIN $FLAGS "$@"
 |-------------|-------|
 | `build:` | **NEVER include** |
 | `version:` | **NEVER include** |
-| `name:` | `caspbx` (top-level) |
-| `container_name:` | `caspbx-app` (main), `caspbx-db` (database) |
-| Main service name | `caspbx` (matches project name) |
+| `name:` | `{project_name}` (top-level) |
+| `container_name:` | `{project_name}-app` (main), `{project_name}-db` (database) |
+| Main service name | `{project_name}` (matches project name) |
 | `pull_policy:` | `always` |
 | `restart:` | `always` |
 | `x-logging:` | Anchor for consistent logging (see below) |
-| Network | Custom `caspbx` with `external: false` |
+| Network | Custom `{project_name}` with `external: false` |
 | Environment variables | **Hardcode with sane defaults** (NEVER use .env files) |
 | **environment: MODE** | **production** (strict host validation) |
 
 ### Docker Compose Structure
 
 ```yaml
-# caspbx - {brief description}
+# {project_name} - {brief description}
 # nginx proxy address - http://172.17.0.1:{port}
 
-name: caspbx
+name: {project_name}
 
 x-logging: &default-logging
   options:
@@ -37271,9 +38085,9 @@ x-logging: &default-logging
   driver: json-file
 
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
-    container_name: caspbx-app
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
+    container_name: {project_name}-app
     hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
@@ -37284,22 +38098,22 @@ services:
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
     volumes:
-      - './rootfs/config:/config:z'
-      - './rootfs/data:/data:z'
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
     ports:
       - '172.17.0.1:64580:80'
     healthcheck:
-      test: /usr/local/bin/caspbx --status
+      test: /usr/local/bin/{project_name} --status
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 90s
     networks:
-      - caspbx
+      - {project_name}
 
 networks:
-  caspbx:
-    name: caspbx
+  {project_name}:
+    name: {project_name}
     external: false
 ```
 
@@ -37307,15 +38121,15 @@ networks:
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| `name:` | `caspbx` | Top-level compose project name |
-| `container_name:` | `caspbx-app`, `caspbx-db` | e.g., `jokes-app`, `jokes-db` |
-| Main service | `caspbx` | Service name matches project name |
-| Database service | `caspbx-db` | Database service name |
+| `name:` | `{project_name}` | Top-level compose project name |
+| `container_name:` | `{project_name}-app`, `{project_name}-db` | e.g., `jokes-app`, `jokes-db` |
+| Main service | `{project_name}` | Service name matches project name |
+| Database service | `{project_name}-db` | Database service name |
 | `hostname:` | `${BASE_HOST_NAME:-$HOSTNAME}` | Uses env or system hostname |
 | `restart:` | `always` | Always restart on failure |
 | `pull_policy:` | `always` | Always pull latest image |
 | `logging:` | `*default-logging` | Use the logging anchor |
-| `networks:` | `caspbx` | Isolated network per project |
+| `networks:` | `{project_name}` | Isolated network per project |
 
 ### Logging Anchor
 
@@ -37332,17 +38146,17 @@ x-logging: &default-logging
 **Every service MUST use the anchor:**
 ```yaml
 services:
-  caspbx:
+  {project_name}:
     logging: *default-logging
 ```
 
 ### Multi-Service Example
 
 ```yaml
-# caspbx - with PostgreSQL + Valkey
+# {project_name} - with PostgreSQL + Valkey
 # nginx proxy address - http://172.17.0.1:64580
 
-name: caspbx
+name: {project_name}
 
 x-logging: &default-logging
   options:
@@ -37351,9 +38165,9 @@ x-logging: &default-logging
   driver: json-file
 
 services:
-  caspbx:
-    image: ghcr.io/casapps/caspbx:latest
-    container_name: caspbx-app
+  {project_name}:
+    image: ghcr.io/{project_org}/{project_name}:latest
+    container_name: {project_name}-app
     hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
@@ -37363,58 +38177,58 @@ services:
       - PORT=80
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
-      - DB_HOST=caspbx-db
-      - DB_NAME=caspbx
-      - DB_USER=caspbx
-      - CACHE_HOST=caspbx-cache
+      - DB_HOST={project_name}-db
+      - DB_NAME={project_name}
+      - DB_USER={project_name}
+      - CACHE_HOST={project_name}-cache
     volumes:
-      - './rootfs/config:/config:z'
-      - './rootfs/data:/data:z'
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
     ports:
       - '172.17.0.1:64580:80'
     healthcheck:
-      test: /usr/local/bin/caspbx --status
+      test: /usr/local/bin/{project_name} --status
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 90s
     depends_on:
-      caspbx-db:
+      {project_name}-db:
         condition: service_healthy
-      caspbx-cache:
+      {project_name}-cache:
         condition: service_healthy
     networks:
-      - caspbx
+      - {project_name}
 
-  caspbx-db:
+  {project_name}-db:
     image: postgres:alpine
     pull_policy: always
-    container_name: caspbx-db
+    container_name: {project_name}-db
     restart: always
     logging: *default-logging
     environment:
-      - POSTGRES_DB=caspbx
-      - POSTGRES_USER=caspbx
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-caspbx}
+      - POSTGRES_DB={project_name}
+      - POSTGRES_USER={project_name}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-{project_name}}
     volumes:
-      - './rootfs/data/db/postgres/caspbx:/var/lib/postgresql/data:z'
+      - './volumes/data/db/postgres/{project_name}:/var/lib/postgresql/data:z'
     healthcheck:
-      test: pg_isready -U caspbx -d caspbx
+      test: pg_isready -U {project_name} -d {project_name}
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
     networks:
-      - caspbx
+      - {project_name}
 
-  caspbx-cache:
+  {project_name}-cache:
     image: valkey/valkey:alpine
     pull_policy: always
-    container_name: caspbx-cache
+    container_name: {project_name}-cache
     restart: always
     logging: *default-logging
     volumes:
-      - './rootfs/data/db/valkey/caspbx:/data:z'
+      - './volumes/data/db/valkey/{project_name}:/data:z'
     healthcheck:
       test: valkey-cli ping || exit 1
       interval: 10s
@@ -37422,11 +38236,11 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - caspbx
+      - {project_name}
 
 networks:
-  caspbx:
-    name: caspbx
+  {project_name}:
+    name: {project_name}
     external: false
 ```
 
@@ -37434,13 +38248,13 @@ networks:
 
 | Service Type | Service Name | Container Name |
 |--------------|--------------|----------------|
-| Main application | `caspbx` | `caspbx-app` |
-| All-in-one | `caspbx` | `caspbx-app` |
-| Database | `caspbx-db` | `caspbx-db` |
-| Cache (Valkey) | `caspbx-cache` | `caspbx-cache` |
-| Search (Meilisearch) | `caspbx-search` | `caspbx-search` |
-| Queue (RabbitMQ) | `caspbx-queue` | `caspbx-queue` |
-| Proxy (Nginx) | `caspbx-proxy` | `caspbx-proxy` |
+| Main application | `{project_name}` | `{project_name}-app` |
+| All-in-one | `{project_name}` | `{project_name}-app` |
+| Database | `{project_name}-db` | `{project_name}-db` |
+| Cache (Valkey) | `{project_name}-cache` | `{project_name}-cache` |
+| Search (Meilisearch) | `{project_name}-search` | `{project_name}-search` |
+| Queue (RabbitMQ) | `{project_name}-queue` | `{project_name}-queue` |
+| Proxy (Nginx) | `{project_name}-proxy` | `{project_name}-proxy` |
 
 ### All-in-One vs Multi-Service
 
@@ -37458,8 +38272,8 @@ networks:
 - Single container runs everything
 - Uses SQLite (embedded) or embedded key-value store
 - Valkey/Redis runs inside container via supervisor or embedded
-- Service name: `caspbx`
-- Container name: `caspbx-app`
+- Service name: `{project_name}`
+- Container name: `{project_name}-app`
 - Simpler deployment, single image
 - **Trade-offs:** No horizontal scaling, single point of failure, harder to debug
 
@@ -37475,11 +38289,11 @@ networks:
 **All-in-One docker-compose (`docker/all-in-one.yml`):**
 
 ```yaml
-# caspbx - All-in-One (app + embedded DB)
+# {project_name} - All-in-One (app + embedded DB)
 # nginx proxy address - http://172.17.0.1:64580
 # Usage: docker compose -f all-in-one.yml up -d
 
-name: caspbx
+name: {project_name}
 
 x-logging: &default-logging
   options:
@@ -37488,9 +38302,9 @@ x-logging: &default-logging
   driver: json-file
 
 services:
-  caspbx:
-    image: ghcr.io/casapps/caspbx:latest-aio
-    container_name: caspbx-app
+  {project_name}:
+    image: ghcr.io/{project_org}/{project_name}:latest-aio
+    container_name: {project_name}-app
     hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
@@ -37501,22 +38315,22 @@ services:
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
     volumes:
-      - './rootfs/config:/config:z'
-      - './rootfs/data:/data:z'
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
     ports:
       - '172.17.0.1:64580:80'
     healthcheck:
-      test: /usr/local/bin/caspbx --status
+      test: /usr/local/bin/{project_name} --status
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 90s
     networks:
-      - caspbx
+      - {project_name}
 
 networks:
-  caspbx:
-    name: caspbx
+  {project_name}:
+    name: {project_name}
     external: false
 ```
 
@@ -37548,7 +38362,7 @@ networks:
 # All-in-One Dockerfile - includes app + postgresql + valkey + tor
 # Build: golang:alpine (static binary, CGO_ENABLED=0)
 # Runtime: debian:latest (stable, broad compatibility)
-# Image name: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest-aio
+# Image name: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest-aio
 # PORTS: Only 80 exposed (db/cache are internal-only)
 
 # =============================================================================
@@ -37575,7 +38389,7 @@ ARG BUILD_TIME=unknown
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=${BUILD_TIME}" \
-    -o caspbx ./src
+    -o {project_name} ./src
 
 # =============================================================================
 # Stage 2: Runtime image with PostgreSQL + Valkey + Tor
@@ -37583,7 +38397,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM debian:latest
 
 LABEL org.opencontainers.image.source="{PLATFORM_REPO_URL}"
-LABEL org.opencontainers.image.description="caspbx - all-in-one (debian + postgresql + valkey + tor)"
+LABEL org.opencontainers.image.description="{project_name} - all-in-one (debian + postgresql + valkey + tor)"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Install dependencies (PostgreSQL + Valkey + Tor + Supervisor)
@@ -37608,11 +38422,11 @@ RUN mkdir -p /config/postgres /config/valkey \
     && chown -R postgres:postgres /data/db/postgres /data/log/postgres /run/postgresql
 
 # Copy configs and entrypoint
-COPY docker/file_system/ /
+COPY docker/rootfs/ /
 
 # Copy application binary from builder
-COPY --from=builder /build/caspbx /usr/local/bin/
-RUN chmod +x /usr/local/bin/caspbx /usr/local/bin/entrypoint.sh
+COPY --from=builder /build/{project_name} /usr/local/bin/
+RUN chmod +x /usr/local/bin/{project_name} /usr/local/bin/entrypoint.sh
 
 # Default environment
 # DATABASE_DIR: SQLite location (binary auto-detects container, but explicit is clearer)
@@ -37623,8 +38437,8 @@ ENV MODE=production \
     DATABASE_DIR=/data/db/sqlite \
     PGDATA=/data/db/postgres \
     DB_HOST=/run/postgresql \
-    DB_NAME=caspbx \
-    DB_USER=caspbx \
+    DB_NAME={project_name} \
+    DB_USER={project_name} \
     VALKEY_SOCKET=/run/valkey/valkey.sock
 
 # Only expose app port - db/cache are internal
@@ -37636,7 +38450,7 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=3 \
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 ```
 
-**All-in-One supervisor config (`docker/file_system/etc/supervisor/conf.d/services.conf`):**
+**All-in-One supervisor config (`docker/rootfs/etc/supervisor/conf.d/services.conf`):**
 
 ```ini
 [supervisord]
@@ -37662,7 +38476,7 @@ stdout_logfile=/data/log/valkey.log
 stderr_logfile=/data/log/valkey.log
 
 [program:tor]
-command=/usr/bin/tor -f /config/caspbx/tor/torrc
+command=/usr/bin/tor -f /config/{project_name}/tor/torrc
 autostart=%(ENV_TOR_ENABLED)s
 autorestart=true
 priority=30
@@ -37670,7 +38484,7 @@ stdout_logfile=/data/log/tor.log
 stderr_logfile=/data/log/tor.log
 
 [program:app]
-command=/usr/local/bin/caspbx
+command=/usr/local/bin/{project_name}
 autostart=true
 autorestart=true
 priority=100
@@ -37678,7 +38492,7 @@ stdout_logfile=/data/log/app.log
 stderr_logfile=/data/log/app.log
 ```
 
-**All-in-One PostgreSQL config (`docker/file_system/config/postgres/postgresql.conf`):**
+**All-in-One PostgreSQL config (`docker/rootfs/config/postgres/postgresql.conf`):**
 
 ```ini
 # PostgreSQL configuration optimized for AIO containers
@@ -37719,7 +38533,7 @@ autovacuum_naptime = 60s
 ssl = off
 ```
 
-**All-in-One Valkey config (`docker/file_system/config/valkey/valkey.conf`):**
+**All-in-One Valkey config (`docker/rootfs/config/valkey/valkey.conf`):**
 
 ```ini
 # Valkey configuration optimized for AIO containers
@@ -37756,7 +38570,7 @@ logfile ""
 protected-mode no
 ```
 
-**All-in-One entrypoint.sh (`docker/file_system/usr/local/bin/entrypoint.sh`):**
+**All-in-One entrypoint.sh (`docker/rootfs/usr/local/bin/entrypoint.sh`):**
 
 ```bash
 #!/bin/bash
@@ -37789,9 +38603,9 @@ if [ ! -f /data/db/postgres/PG_VERSION ]; then
     sleep 3
 
     # Create application database and user
-    su - postgres -c "psql -c \"CREATE USER ${DB_USER:-caspbx} WITH PASSWORD '${DB_PASSWORD:-caspbx}';\""
-    su - postgres -c "psql -c \"CREATE DATABASE ${DB_NAME:-caspbx} OWNER ${DB_USER:-caspbx};\""
-    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME:-caspbx} TO ${DB_USER:-caspbx};\""
+    su - postgres -c "psql -c \"CREATE USER ${DB_USER:-{project_name}} WITH PASSWORD '${DB_PASSWORD:-{project_name}}';\""
+    su - postgres -c "psql -c \"CREATE DATABASE ${DB_NAME:-{project_name}} OWNER ${DB_USER:-{project_name}};\""
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME:-{project_name}} TO ${DB_USER:-{project_name}};\""
 
     # Stop PostgreSQL (supervisor will start it)
     su - postgres -c "pg_ctl -D /data/db/postgres stop"
@@ -37819,9 +38633,9 @@ exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 | `PORT` | `80` | Application port |
 | `DEBUG` | `false` | Debug mode |
 | `TZ` | `America/New_York` | Timezone |
-| `DB_NAME` | `caspbx` | PostgreSQL database name |
-| `DB_USER` | `caspbx` | PostgreSQL username |
-| `DB_PASSWORD` | `caspbx` | PostgreSQL password |
+| `DB_NAME` | `{project_name}` | PostgreSQL database name |
+| `DB_USER` | `{project_name}` | PostgreSQL username |
+| `DB_PASSWORD` | `{project_name}` | PostgreSQL password |
 | `TOR_ENABLED` | `false` | Enable Tor hidden service |
 
 **App Connection Strings (internal):**
@@ -37838,10 +38652,10 @@ valkeyURL := "unix:///run/valkey/valkey.sock"
 
 ```bash
 # Standard image (context is project root)
-docker build -t {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest -f docker/Dockerfile .
+docker build -t {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest -f docker/Dockerfile .
 
 # All-in-one image (context is project root)
-docker build -t {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest-aio -f docker/Dockerfile.aio .
+docker build -t {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest-aio -f docker/Dockerfile.aio .
 ```
 
 **When to use All-in-One:**
@@ -37856,43 +38670,43 @@ docker build -t {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest-aio -f docke
 - Horizontal scaling of specific components
 - Microservice architecture
 
-### Two `rootfs/` Contexts (CRITICAL - Understand This)
+### Build-Time `docker/rootfs/` vs Runtime `./volumes/` (CRITICAL - Understand This)
 
-**There are TWO completely different `rootfs/` directories - do not confuse them:**
+**There are TWO different filesystem concepts here - do not confuse them:**
 
 | Context | Location | Purpose | In Repo? |
 |---------|----------|---------|----------|
-| **Build-time** | `docker/file_system/` | Container overlay (entrypoint.sh) | YES |
-| **Runtime** | `./rootfs/` in docker-compose | Volume mounts (config, data) | NEVER |
+| **Build-time** | `docker/rootfs/` | Container overlay (entrypoint.sh, service configs) | YES |
+| **Runtime** | `./volumes/` next to the compose file | Volume mounts (config, data) | NEVER |
 
-**Build-time `docker/file_system/`** (in repo):
-```
+**Build-time `docker/rootfs/`** (in repo):
+``` 
 docker/
-├── Dockerfile           # COPY docker/file_system/ / ← copies into container image
+├── Dockerfile           # COPY docker/rootfs/ / ← copies into container image
 ├── docker-compose.yml
-└── file_system/         # BUILD overlay - committed to git
+└── rootfs/              # BUILD overlay - committed to git
     └── usr/local/bin/
         └── entrypoint.sh
 ```
 
-**Runtime `./rootfs/`** (never in repo):
+**Runtime `./volumes/`** (never committed from repo-local runs):
 ```
 # Production (Server Admin's choice of location):
 /path/to/deployment/
 ├── docker-compose.yml   # copied from repo
-└── rootfs/              # RUNTIME - created on server
+└── volumes/             # RUNTIME - created on server
     ├── config/
     └── data/
 
 # Development (temp dir):
 $TEMP_DIR/
 ├── docker-compose.yml   # copied from repo
-└── rootfs/              # RUNTIME - created in temp
+└── volumes/             # RUNTIME - created in temp
     ├── config/
     └── data/
 ```
 
-**Why same name works:** The `./rootfs/` path in docker-compose.yml is relative to where docker-compose runs from, not where it lives in the repo. Dockerfile's `COPY docker/file_system/ /` uses build context (`.` project root).
+**Why this works:** The `./volumes/` path in `docker run`/`docker-compose.yml` is relative to where the container command runs from, not where it lives in the repo. Dockerfile's `COPY docker/rootfs/ /` uses build context (`.` project root).
 
 ### Volume Paths (Local Side)
 
@@ -37900,31 +38714,31 @@ $TEMP_DIR/
 
 | Volume Mount | Purpose |
 |--------------|---------|
-| `./rootfs/config:/config:z` | Configuration files (organized by component) |
-| `./rootfs/data:/data:z` | All persistent data (organized by component) |
+| `./volumes/config:/config:z` | Configuration files (organized by component) |
+| `./volumes/data:/data:z` | All persistent data (organized by component) |
 
 **Container internal structure (organized by component):**
 
 | Container Path | Contents |
 |----------------|----------|
-| `/config/caspbx/` | Binary's {config_dir} - server.yml, etc. |
-| `/config/caspbx/ssl/` | TLS certs and keys |
-| `/config/caspbx/tor/` | Tor config (torrc) - binary owns Tor |
-| `/config/caspbx/` | External service configs (valkey, nginx, etc.) |
-| `/data/caspbx/` | Binary's {data_dir} |
-| `/data/caspbx/security/` | Security DBs (geoip, blocklists, cve, trivy) |
-| `/data/caspbx/tor/` | Tor data (hidden service keys) - binary owns Tor |
+| `/config/{project_name}/` | Binary's {config_dir} - server.yml, etc. |
+| `/config/{project_name}/ssl/` | TLS certs and keys |
+| `/config/{project_name}/tor/` | Tor config (torrc) - binary owns Tor |
+| `/config/{internal_name}/` | External service configs (valkey, nginx, etc.) |
+| `/data/{project_name}/` | Binary's {data_dir} |
+| `/data/{project_name}/security/` | Security DBs (geoip, blocklists, cve, trivy) |
+| `/data/{project_name}/tor/` | Tor data (hidden service keys) - binary owns Tor |
 | `/data/db/{dbtype}/` | Database data (postgres, valkey, sqlite, etc.) |
-| `/data/log/caspbx/` | App logs (access.log, error.log, tor.log) |
-| `/data/log/caspbx/` | Service logs (nginx, caddy, etc.) |
-| `/data/backups/caspbx/` | Backup files |
-| `/data/caspbx/` | External service data (nginx, apache, etc.) |
+| `/data/log/{project_name}/` | App logs (access.log, error.log, tor.log) |
+| `/data/log/{internal_name}/` | Service logs (nginx, caddy, etc.) |
+| `/data/backups/{project_name}/` | Backup files |
+| `/data/{internal_name}/` | External service data (nginx, apache, etc.) |
 
 **Rules:**
 - Production volumes use `:z` suffix (SELinux shared label)
 - Development volumes omit `:z` (not needed in temp dir)
-- `docker/file_system/` is for container overlay (entrypoint.sh) - NOT for runtime volumes
-- NEVER create runtime `rootfs/` in the project repo
+- `docker/rootfs/` is for container overlay (entrypoint.sh, service configs) - NOT for runtime volumes
+- NEVER commit runtime `volumes/` from local runs
 
 ### Running Docker Compose
 
@@ -37933,23 +38747,23 @@ $TEMP_DIR/
 **Always use temp directory workflow:**
 1. Create unique temp dir with apimgr prefix
 2. Copy `docker/docker-compose.yml` to temp dir
-3. Create `rootfs/` structure in temp dir
+3. Create `volumes/` structure in temp dir
 4. Run docker compose from temp dir
 5. Data lives in temp dir, isolated from project
 
 ```bash
-# Setup (uses OS temp dir: {ostempdir}/casapps/caspbx-XXXXXX/)
+# Setup (uses OS temp dir: {ostempdir}/{project_org}/{internal_name}-XXXXXX/)
 # Set PROJECT_ROOT to your actual project location
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"  # Use git top-level
 # Or use absolute path: PROJECT_ROOT="/path/to/your/project"
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 
 # Copy docker-compose.yml
 cp "$PROJECT_ROOT/docker/docker-compose.yml" "$TEMP_DIR/"
 
-# Run from temp dir - ./rootfs/ resolves to $TEMP_DIR/rootfs/
+# Run from temp dir - ./volumes/ resolves to $TEMP_DIR/volumes/
 cd "$TEMP_DIR" && docker compose up -d
 
 # Stop and cleanup
@@ -37973,7 +38787,7 @@ rm -rf "$TEMP_DIR"
 **NEVER:**
 - Run docker compose in project directory
 - Run docker compose with `--project-directory` pointing to project root
-- Mount volumes to `{project_root}/rootfs/`
+- Mount volumes to `{project_root}/volumes/`
 
 ### Port Mapping
 
@@ -38015,13 +38829,13 @@ rm -rf "$TEMP_DIR"
 Development mode with optional debug. Humans run this manually for local development.
 
 ```yaml
-name: caspbx-dev
+name: {project_name}-dev
 
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
     pull_policy: always
-    container_name: caspbx-dev
+    container_name: {project_name}-dev
     restart: always
     environment:
       # Development: relaxed security, verbose logging, no caching
@@ -38034,24 +38848,24 @@ services:
       # Development: accessible from all interfaces
       - "64580:80"
     volumes:
-      # TEMP DIR WORKFLOW: ./rootfs/ resolves to $TEMP_DIR/rootfs/
+      # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory - always use temp dir workflow
-      - ./rootfs/config:/config:z
-      - ./rootfs/data:/data:z
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     networks:
-      - caspbx-dev
+      - {project_name}-dev
 
 networks:
-  caspbx-dev:
-    name: caspbx-dev
+  {project_name}-dev:
+    name: {project_name}-dev
     external: false
 ```
 
 **Run:**
 ```bash
-mkdir -p "${TMPDIR:-/tmp}/casapps"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/casapps/caspbx-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/{project_org}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 cp docker/docker-compose.dev.yml "$TEMP_DIR/docker-compose.yml"
 cd "$TEMP_DIR" && docker compose up -d
 ```
@@ -38065,13 +38879,13 @@ cd "$TEMP_DIR" && docker compose up -d
 Production has NO debug options. Debug must be set via CLI if needed. Humans deploy this for production use.
 
 ```yaml
-name: caspbx
+name: {project_name}
 
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
     pull_policy: always
-    container_name: caspbx-app
+    container_name: {project_name}-app
     restart: always
     environment:
       # Production: strict security, minimal logging, caching enabled
@@ -38089,24 +38903,24 @@ services:
       # Production: bound to Docker bridge only (reverse proxy handles external)
       - "172.17.0.1:64580:80"
     volumes:
-      # TEMP DIR WORKFLOW: ./rootfs/ resolves to $TEMP_DIR/rootfs/
+      # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory - always use temp dir workflow
-      - ./rootfs/config:/config:z
-      - ./rootfs/data:/data:z
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     networks:
-      - caspbx
+      - {project_name}
 
 networks:
-  caspbx:
-    name: caspbx
+  {project_name}:
+    name: {project_name}
     external: false
 ```
 
 **Run:**
 ```bash
-mkdir -p "${TMPDIR:-/tmp}/casapps"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/casapps/caspbx-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/{project_org}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 cp docker/docker-compose.yml "$TEMP_DIR/"
 cd "$TEMP_DIR" && docker compose up -d
 ```
@@ -38120,13 +38934,13 @@ cd "$TEMP_DIR" && docker compose up -d
 Debug enabled for test visibility. **MUST be copied to temp directory before use - NEVER run from project directory.**
 
 ```yaml
-name: caspbx-test
+name: {project_name}-test
 
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
     pull_policy: always
-    container_name: caspbx-test
+    container_name: {project_name}-test
     restart: "no"
     environment:
       - MODE=development
@@ -38135,25 +38949,25 @@ services:
     ports:
       - "64581:80"
     volumes:
-      # CRITICAL: ./rootfs/ must resolve to $TEMP_DIR/rootfs/, NOT project directory
+      # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
       # This file MUST be copied to a temp directory before running
       # AI: NEVER run this from the project directory
-      - ./rootfs/config:/config:z
-      - ./rootfs/data:/data:z
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     networks:
-      - caspbx-test
+      - {project_name}-test
 
 networks:
-  caspbx-test:
-    name: caspbx-test
+  {project_name}-test:
+    name: {project_name}-test
     external: false
 ```
 
 **AI/Automated Testing Workflow (REQUIRED):**
 ```bash
-mkdir -p "${TMPDIR:-/tmp}/casapps"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/casapps/caspbx-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/{project_org}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
 cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 rm -rf "$TEMP_DIR"  # Cleanup after tests
@@ -38164,16 +38978,16 @@ rm -rf "$TEMP_DIR"  # Cleanup after tests
 **Location:** `docker/docker-compose.yml`
 
 ```yaml
-name: caspbx
+name: {project_name}
 
 services:
-  caspbx:
-    image: {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  {project_name}:
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
     pull_policy: always
-    container_name: caspbx-app
+    container_name: {project_name}-app
     restart: always
     depends_on:
-      caspbx-db:
+      {project_name}-db:
         condition: service_healthy
     environment:
       # Tor auto-enabled (tor binary installed in image)
@@ -38182,44 +38996,44 @@ services:
       # DOMAIN (optional - containers behind reverse proxy auto-detect from headers)
       # Only set if NOT behind reverse proxy, comma-separated list supported
       # - DOMAIN=myapp.com,www.myapp.com,api.myapp.com
-      - DB_HOST=caspbx-db
+      - DB_HOST={project_name}-db
       - DB_PORT=5432
-      - DB_NAME=caspbx
-      - DB_USER=caspbx
-      - DB_PASSWORD=${DB_PASSWORD:-caspbx}
+      - DB_NAME={project_name}
+      - DB_USER={project_name}
+      - DB_PASSWORD=${DB_PASSWORD:-{project_name}}
     ports:
       # Production: bound to Docker bridge only (reverse proxy handles external)
       - "172.17.0.1:64580:80"
     volumes:
-      - ./rootfs/config:/config:z
-      - ./rootfs/data:/data:z
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     networks:
-      - caspbx
+      - {project_name}
 
-  caspbx-db:
+  {project_name}-db:
     image: postgres:alpine
     pull_policy: always
-    container_name: caspbx-db
+    container_name: {project_name}-db
     restart: always
     environment:
-      - POSTGRES_DB=caspbx
-      - POSTGRES_USER=caspbx
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-caspbx}
+      - POSTGRES_DB={project_name}
+      - POSTGRES_USER={project_name}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-{project_name}}
       - TZ=America/New_York
     volumes:
-      - ./rootfs/data/db/postgres/caspbx:/var/lib/postgresql/data:z
+      - ./volumes/data/db/postgres/{project_name}:/var/lib/postgresql/data:z
     healthcheck:
-      test: pg_isready -U caspbx -d caspbx
+      test: pg_isready -U {project_name} -d {project_name}
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
     networks:
-      - caspbx
+      - {project_name}
 
 networks:
-  caspbx:
-    name: caspbx
+  {project_name}:
+    name: {project_name}
     external: false
 ```
 
@@ -38230,27 +39044,27 @@ networks:
 | Setting | Value |
 |---------|-------|
 | Internal port | **80** (always) |
-| Config dir | `/config/caspbx/` (binary's {config_dir}) |
-| Security dir | `/data/caspbx/security/` |
-| Tor config dir | `/config/caspbx/tor/` (binary owns Tor) |
-| Data dir | `/data/caspbx/` (binary's {data_dir}) |
-| Tor data dir | `/data/caspbx/tor/` (binary owns Tor) |
+| Config dir | `/config/{project_name}/` (binary's {config_dir}) |
+| Security dir | `/data/{project_name}/security/` |
+| Tor config dir | `/config/{project_name}/tor/` (binary owns Tor) |
+| Data dir | `/data/{project_name}/` (binary's {data_dir}) |
+| Tor data dir | `/data/{project_name}/tor/` (binary owns Tor) |
 | Database dir | `/data/db/{dbtype}/` (postgres, valkey, sqlite) |
-| Log dir | `/data/log/caspbx/` |
-| Backup dir | `/data/backups/caspbx/` |
-| Binary | `/usr/local/bin/caspbx` |
+| Log dir | `/data/log/{project_name}/` |
+| Backup dir | `/data/backups/{project_name}/` |
+| Binary | `/usr/local/bin/{project_name}` |
 | HEALTHCHECK | `{binary} --status` |
 
 **Path Mapping (Container vs Local):**
 
 | Container Path | Local Path | Purpose |
 |----------------|-----------|---------|
-| `/config` | `./rootfs/config` | Configuration root (organized by component) |
-| `/data` | `./rootfs/data` | Data root (organized by component) |
-| `/config/caspbx/` | `./rootfs/config/caspbx/` | Binary's config |
-| `/data/caspbx/` | `./rootfs/data/caspbx/` | Binary's data |
-| `/data/db/` | `./rootfs/data/db/` | Database data |
-| `/data/log/` | `./rootfs/data/log/` | Log files |
+| `/config` | `./volumes/config` | Configuration root (organized by component) |
+| `/data` | `./volumes/data` | Data root (organized by component) |
+| `/config/{project_name}/` | `./volumes/config/{project_name}/` | Binary's config |
+| `/data/{project_name}/` | `./volumes/data/{project_name}/` | Binary's data |
+| `/data/db/` | `./volumes/data/db/` | Database data |
+| `/data/log/` | `./volumes/data/log/` | Log files |
 
 ## Tor in Container
 
@@ -38260,10 +39074,10 @@ networks:
 |----------|-------------|
 | Auto-detection | Tor starts automatically if `tor` binary is installed |
 | Always enabled | Docker image includes `tor`, so always enabled in containers |
-| Config location | Torrc in `/config/caspbx/tor/torrc` |
-| Data persistence | Tor keys in `/data/caspbx/tor/site/` (survives restart) |
+| Config location | Torrc in `/config/{project_name}/tor/torrc` |
+| Data persistence | Tor keys in `/data/{project_name}/tor/site/` (survives restart) |
 | .onion address | Persists across container restarts via volume mount |
-| Binary owns Tor | Tor dirs under `caspbx/`, not separate service |
+| Binary owns Tor | Tor dirs under `{project_name}/`, not separate service |
 
 ## Container Detection
 
@@ -38275,7 +39089,7 @@ networks:
 
 | When in Container | Behavior |
 |-------------------|----------|
-| Show setup token | On first run - one-time setup token displayed in console for `/admin` access |
+| Show setup token | On first run - one-time setup token displayed in console for `/server/{admin_path}` access |
 | Defaults | Use container-appropriate defaults |
 | Logging | Log to stdout/stderr (captured by container runtime) |
 | Tor | Application manages Tor process internally |
@@ -38286,17 +39100,17 @@ networks:
 
 | Tag | Description | Example |
 |-----|-------------|---------|
-| `{PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest` | Latest stable release | `ghcr.io/myorg/myapp:latest` |
-| `{PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:{version}` | Specific version | `ghcr.io/myorg/myapp:1.2.3` |
-| `{PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:{YYMM}` | Year/month tag | `ghcr.io/myorg/myapp:2512` |
-| `{PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:{commit}` | Git commit (7 char) | `ghcr.io/myorg/myapp:abc1234` |
+| `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest` | Latest stable release | `ghcr.io/myorg/myapp:latest` |
+| `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:{version}` | Specific version | `ghcr.io/myorg/myapp:1.2.3` |
+| `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:{YYMM}` | Year/month tag | `ghcr.io/myorg/myapp:2512` |
+| `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:{commit}` | Git commit (7 char) | `ghcr.io/myorg/myapp:abc1234` |
 
 ### Development Tags (Local)
 
 | Tag | Description | Example |
 |-----|-------------|---------|
-| `caspbx:dev` | Local development build | `myapp:dev` |
-| `caspbx:test` | Local test build | `myapp:test` |
+| `{project_name}:dev` | Local development build | `myapp:dev` |
+| `{project_name}:test` | Local test build | `myapp:test` |
 
 ### Registry
 
@@ -38307,7 +39121,7 @@ networks:
 
 ### Tag Rules
 
-1. **Release builds** MUST push to `{PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx`
+1. **Release builds** MUST push to `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}`
 2. **Development builds** MUST use local-only tags (no registry prefix)
 3. **NEVER push `:dev` or `:test` tags to production registry**
 4. All release images built for `linux/amd64` AND `linux/arm64`
@@ -38325,10 +39139,10 @@ networks:
 
 | Aspect | Local Development | CI/CD Workflows |
 |--------|-------------------|-----------------|
-| **Go installation** | Docker `golang:alpine` | `actions/setup-go@v5` or runner's Go |
-| **Caching** | GODIR/GOCACHE in `~/.local/share/go` | CI-native caching (setup-go has built-in) |
+| **Go installation** | Docker `golang:alpine` | Docker `golang:alpine` |
+| **Caching** | GODIR/GOCACHE in `~/.local/share/go` | CI-native cache mounted into `golang:alpine` |
 | **Build command** | `make dev`, `make local`, `make build` | Direct `go build` with explicit flags |
-| **Testing** | Docker/Incus containers | Runner environment |
+| **Testing** | Docker/Incus containers | `golang:alpine` job container or explicit `docker run` |
 | **Makefile** | ALWAYS use Makefile targets | NEVER use Makefile (explicit commands) |
 
 **CI/CD workflows MUST:**
@@ -38336,11 +39150,13 @@ networks:
 - Use CI-native caching (NOT local GODIR/GOCACHE paths)
 - Set VERSION, COMMIT_ID, BUILD_DATE explicitly
 - Build all platforms in matrix
+- Auto-cancel older in-progress runs for the same ref on push workflows targeting `main`, `master`, `devel`, `dev`, or `beta`
 
 **CI/CD workflows MUST NOT:**
 - Reference local user paths like `~/.local/share/go` (use `/tmp/` or CI-native caching)
 - Use Makefile targets (commands must be explicit for visibility)
 - Depend on local Docker containers for builds (GitHub/Gitea Actions use native Go)
+- Cross-cancel different release refs - only older runs for the exact same branch/tag ref may be auto-canceled
 
 | Git Provider | CI System | Config Location | Self-Hosted |
 |----------|-----------|-----------------|-------------|
@@ -38364,13 +39180,17 @@ networks:
 | `daily.yml` | Daily at 3am UTC + push to main/master | Daily builds |
 | `docker.yml` | Version tag, push to main/master/beta | Docker images |
 
+**Branch push auto-cancel policy:** Any workflow triggered by pushes to `main`, `master`, `devel`, `dev`, or `beta` MUST use workflow concurrency to cancel older in-progress runs for the same ref. This applies to branch-based CI (for example `beta.yml`, `daily.yml`, `docker.yml`, and any project-specific branch-push workflow).
+
+**Tag release auto-cancel policy:** Tag-only release workflows like `release.yml` MUST also use workflow concurrency, but only per exact tag ref. A newer run for `refs/tags/v1.2.3` should cancel the older `refs/tags/v1.2.3` run. A run for `v1.2.4` must NOT cancel `v1.2.3`.
+
 ## Build Info Variables
 
 All workflows MUST set these environment variables:
 
 ```yaml
 # Set in "Set build info" step, NOT as static env:
-#   echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+#   if [ -f release.txt ]; then echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV; else echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV; fi
 #   echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 #   echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
 # Then use in build step:
@@ -38390,15 +39210,20 @@ on:
       - 'v*'
       - '[0-9]*.[0-9]*.[0-9]*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -38424,17 +39249,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITHUB_ENV
@@ -38552,15 +39376,20 @@ on:
     branches:
       - beta
 
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -38586,17 +39415,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITHUB_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITHUB_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITHUB_ENV
@@ -38671,7 +39499,12 @@ jobs:
           merge-multiple: true
 
       - name: Set version
-        run: echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITHUB_ENV
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITHUB_ENV
+          fi
 
       - name: Create version.txt
         run: echo "${{ env.VERSION }}" > binaries/version.txt
@@ -38701,15 +39534,20 @@ on:
       - master
   workflow_dispatch:
 
+concurrency:
+  group: daily-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -38735,17 +39573,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITHUB_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITHUB_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITHUB_ENV
@@ -38820,7 +39657,12 @@ jobs:
           merge-multiple: true
 
       - name: Set version
-        run: echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITHUB_ENV
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITHUB_ENV
+          fi
 
       - name: Create version.txt
         run: echo "${{ env.VERSION }}" > binaries/version.txt
@@ -38879,8 +39721,12 @@ on:
       - '*.*.*'
   workflow_dispatch:
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -38952,8 +39798,8 @@ jobs:
             BUILD_DATE=${{ env.BUILD_DATE }}
             COMMIT_ID=${{ env.COMMIT_ID }}
           labels: |
-            org.opencontainers.image.vendor=casapps
-            org.opencontainers.image.authors=casapps
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}
             org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
             org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
@@ -38965,8 +39811,8 @@ jobs:
             org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.licenses=MIT
           annotations: |
-            manifest:org.opencontainers.image.vendor=casapps
-            manifest:org.opencontainers.image.authors=casapps
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}
             manifest:org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
             manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
@@ -39047,8 +39893,8 @@ jobs:
             BUILD_DATE=${{ env.BUILD_DATE }}
             COMMIT_ID=${{ env.COMMIT_ID }}
           labels: |
-            org.opencontainers.image.vendor=casapps
-            org.opencontainers.image.authors=casapps
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
             org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
             org.opencontainers.image.version=${{ env.VERSION }}
@@ -39059,8 +39905,8 @@ jobs:
             org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.licenses=MIT
           annotations: |
-            manifest:org.opencontainers.image.vendor=casapps
-            manifest:org.opencontainers.image.authors=casapps
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
             manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
             manifest:org.opencontainers.image.version=${{ env.VERSION }}
@@ -39149,15 +39995,20 @@ on:
       - 'v*'
       - '[0-9]*.[0-9]*.[0-9]*'
 
+concurrency:
+  group: release-${{ gitea.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -39183,17 +40034,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=${GITEA_REF_NAME#v}" >> $GITEA_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITEA_ENV
+          else
+            echo "VERSION=${GITEA_REF_NAME#v}" >> $GITEA_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITEA_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITEA_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITEA_ENV
@@ -39311,15 +40161,20 @@ on:
     branches:
       - beta
 
+concurrency:
+  group: beta-${{ gitea.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -39331,17 +40186,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITEA_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITEA_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITEA_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITEA_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITEA_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITEA_ENV
@@ -39416,7 +40270,12 @@ jobs:
           merge-multiple: true
 
       - name: Set version
-        run: echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITEA_ENV
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITEA_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")-beta" >> $GITEA_ENV
+          fi
 
       - name: Create version.txt
         run: echo "${{ env.VERSION }}" > binaries/version.txt
@@ -39446,15 +40305,20 @@ on:
       - master
   workflow_dispatch:
 
+concurrency:
+  group: daily-${{ gitea.ref }}
+  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
+
 permissions:
   contents: write
 
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:alpine
     strategy:
       matrix:
         include:
@@ -39480,17 +40344,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set build info
         run: |
-          echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITEA_ENV
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITEA_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITEA_ENV
+          fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITEA_ENV
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITEA_ENV
-          # OFFICIALSITE (optional): Set in repository secrets, or site.txt file, or leave empty
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
             echo "OFFICIALSITE=$(cat site.txt)" >> $GITEA_ENV
@@ -39565,7 +40428,12 @@ jobs:
           merge-multiple: true
 
       - name: Set version
-        run: echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITEA_ENV
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITEA_ENV
+          else
+            echo "VERSION=$(date -u +"%Y%m%d%H%M%S")" >> $GITEA_ENV
+          fi
 
       - name: Create version.txt
         run: echo "${{ env.VERSION }}" > binaries/version.txt
@@ -39603,8 +40471,12 @@ on:
       - '*.*.*'
   workflow_dispatch:
 
+concurrency:
+  group: docker-${{ gitea.ref }}
+  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
+
 env:
-  PROJECTNAME: caspbx
+  PROJECTNAME: {project_name}
   # Registry auto-detected from Gitea instance (works with self-hosted)
   # Format: {gitea-server}/owner/repo -> extracts server for registry
   IMAGE_NAME: ${{ gitea.repository }}
@@ -39691,8 +40563,8 @@ jobs:
             BUILD_DATE=${{ env.BUILD_DATE }}
             COMMIT_ID=${{ env.COMMIT_ID }}
           labels: |
-            org.opencontainers.image.vendor=casapps
-            org.opencontainers.image.authors=casapps
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}
             org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
             org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
@@ -39704,8 +40576,8 @@ jobs:
             org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             org.opencontainers.image.licenses=MIT
           annotations: |
-            manifest:org.opencontainers.image.vendor=casapps
-            manifest:org.opencontainers.image.authors=casapps
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}
             manifest:org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
             manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
@@ -39793,8 +40665,8 @@ jobs:
             BUILD_DATE=${{ env.BUILD_DATE }}
             COMMIT_ID=${{ env.COMMIT_ID }}
           labels: |
-            org.opencontainers.image.vendor=casapps
-            org.opencontainers.image.authors=casapps
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
             org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
             org.opencontainers.image.version=${{ env.VERSION }}
@@ -39805,8 +40677,8 @@ jobs:
             org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             org.opencontainers.image.licenses=MIT
           annotations: |
-            manifest:org.opencontainers.image.vendor=casapps
-            manifest:org.opencontainers.image.authors=casapps
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
             manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
             manifest:org.opencontainers.image.version=${{ env.VERSION }}
@@ -39878,12 +40750,12 @@ All `$CI_*` variables are auto-populated by GitLab (works with self-hosted).
 **File:** `.gitlab-ci.yml`
 
 ```yaml
-# GitLab CI/CD Pipeline for caspbx
+# GitLab CI/CD Pipeline for {project_name}
 # Equivalent to GitHub Actions: release.yml, beta.yml, daily.yml, docker.yml
 
 variables:
-  PROJECTNAME: "caspbx"
-  PROJECTORG: "casapps"
+  PROJECTNAME: "{project_name}"
+  PROJECTORG: "{project_org}"
   CGO_ENABLED: "0"
   GOOS: linux
   GOARCH: amd64
@@ -39906,7 +40778,7 @@ stages:
     - export VERSION="${CI_COMMIT_TAG#v}"
     - export COMMIT_ID="${CI_COMMIT_SHORT_SHA}"
     - export BUILD_DATE="$(date +"%a %b %d, %Y at %H:%M:%S %Z")"
-    # OFFICIALSITE (optional): Set in CI/CD Variables, or site.txt file, or leave empty
+    # OFFICIALSITE (optional): site.txt wins; otherwise use CI/CD Variables or leave empty
     # Never guess or assume - must be explicitly defined by user
     - |
       if [ -f site.txt ]; then
@@ -39927,12 +40799,12 @@ build:linux-amd64:
     GOOS: linux
     GOARCH: amd64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-amd64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-amd64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-amd64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-amd64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-linux-amd64*
+      - ${PROJECT_NAME}-linux-amd64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -39944,12 +40816,12 @@ build:linux-arm64:
     GOOS: linux
     GOARCH: arm64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-arm64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-arm64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-arm64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-arm64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-linux-arm64*
+      - ${PROJECT_NAME}-linux-arm64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -39961,12 +40833,12 @@ build:darwin-amd64:
     GOOS: darwin
     GOARCH: amd64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-amd64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-amd64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-amd64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-amd64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-darwin-amd64*
+      - ${PROJECT_NAME}-darwin-amd64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -39978,12 +40850,12 @@ build:darwin-arm64:
     GOOS: darwin
     GOARCH: arm64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-arm64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-arm64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-arm64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-arm64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-darwin-arm64*
+      - ${PROJECT_NAME}-darwin-arm64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -39995,12 +40867,12 @@ build:windows-amd64:
     GOOS: windows
     GOARCH: amd64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-amd64.exe ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-amd64.exe ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-amd64.exe ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-amd64.exe ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-amd64.exe ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-windows-amd64*.exe
+      - ${PROJECT_NAME}-windows-amd64*.exe
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -40012,12 +40884,12 @@ build:windows-arm64:
     GOOS: windows
     GOARCH: arm64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-arm64.exe ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-arm64.exe ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-arm64.exe ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-arm64.exe ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-arm64.exe ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-windows-arm64*.exe
+      - ${PROJECT_NAME}-windows-arm64*.exe
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -40029,12 +40901,12 @@ build:freebsd-amd64:
     GOOS: freebsd
     GOARCH: amd64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-amd64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-amd64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-amd64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-freebsd-amd64*
+      - ${PROJECT_NAME}-freebsd-amd64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -40046,12 +40918,12 @@ build:freebsd-arm64:
     GOOS: freebsd
     GOARCH: arm64
   script:
-    - go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-arm64 ./src
-    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-arm64 ./src/agent; fi
+    - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-arm64 ./src
+    - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-freebsd-arm64*
+      - ${PROJECT_NAME}-freebsd-arm64*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
@@ -40093,29 +40965,29 @@ release:
   artifacts:
     paths:
       - version.txt
-      - $CASPBX-*
+      - ${PROJECT_NAME}-*
   release:
     tag_name: $CI_COMMIT_TAG
     name: "Release $CI_COMMIT_TAG"
     description: "Release created by GitLab CI"
     assets:
       links:
-        - name: "$CASPBX-linux-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-linux-amd64?job=build:linux-amd64"
-        - name: "$CASPBX-linux-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-linux-arm64?job=build:linux-arm64"
-        - name: "$CASPBX-darwin-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-darwin-amd64?job=build:darwin-amd64"
-        - name: "$CASPBX-darwin-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-darwin-arm64?job=build:darwin-arm64"
-        - name: "$CASPBX-windows-amd64.exe"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-windows-amd64.exe?job=build:windows-amd64"
-        - name: "$CASPBX-windows-arm64.exe"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-windows-arm64.exe?job=build:windows-arm64"
-        - name: "$CASPBX-freebsd-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-freebsd-amd64?job=build:freebsd-amd64"
-        - name: "$CASPBX-freebsd-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/$CASPBX-freebsd-arm64?job=build:freebsd-arm64"
+        - name: "${PROJECT_NAME}-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-linux-amd64?job=build:linux-amd64"
+        - name: "${PROJECT_NAME}-linux-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-linux-arm64?job=build:linux-arm64"
+        - name: "${PROJECT_NAME}-darwin-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-darwin-amd64?job=build:darwin-amd64"
+        - name: "${PROJECT_NAME}-darwin-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-darwin-arm64?job=build:darwin-arm64"
+        - name: "${PROJECT_NAME}-windows-amd64.exe"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-windows-amd64.exe?job=build:windows-amd64"
+        - name: "${PROJECT_NAME}-windows-arm64.exe"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-windows-arm64.exe?job=build:windows-arm64"
+        - name: "${PROJECT_NAME}-freebsd-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-freebsd-amd64?job=build:freebsd-amd64"
+        - name: "${PROJECT_NAME}-freebsd-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${PROJECT_NAME}-freebsd-arm64?job=build:freebsd-arm64"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
 
@@ -40134,35 +41006,35 @@ build:beta:
     - export LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
   script:
     # Build all 8 platforms
-    - GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-amd64 ./src
-    - GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-arm64 ./src
-    - GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-amd64 ./src
-    - GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-arm64 ./src
-    - GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-amd64.exe ./src
-    - GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-arm64.exe ./src
-    - GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-amd64 ./src
-    - GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-arm64 ./src
+    - GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-amd64 ./src
+    - GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-arm64 ./src
+    - GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-amd64 ./src
+    - GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-arm64 ./src
+    - GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-amd64.exe ./src
+    - GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-arm64.exe ./src
+    - GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-amd64 ./src
+    - GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-arm64 ./src
     # Build CLI if exists
-    - if [ -d "src/client" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-arm64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-arm64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-amd64.exe ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-arm64.exe ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-amd64.exe ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-arm64.exe ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
     # Build Agent if exists
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-amd64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-arm64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-*
+      - ${PROJECT_NAME}-*
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_BRANCH == "beta"
@@ -40182,35 +41054,35 @@ build:daily:
     - export LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
   script:
     # Build all 8 platforms
-    - GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-amd64 ./src
-    - GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-linux-arm64 ./src
-    - GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-amd64 ./src
-    - GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-darwin-arm64 ./src
-    - GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-amd64.exe ./src
-    - GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-windows-arm64.exe ./src
-    - GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-amd64 ./src
-    - GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-freebsd-arm64 ./src
+    - GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-amd64 ./src
+    - GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-arm64 ./src
+    - GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-amd64 ./src
+    - GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-arm64 ./src
+    - GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-amd64.exe ./src
+    - GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-arm64.exe ./src
+    - GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-amd64 ./src
+    - GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-arm64 ./src
     # Build CLI if exists
-    - if [ -d "src/client" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-linux-arm64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-darwin-arm64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-amd64.exe ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-windows-arm64.exe ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-amd64 ./src/client; fi
-    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-cli-freebsd-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-arm64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-amd64.exe ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-arm64.exe ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
+    - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
     # Build Agent if exists
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-linux-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-darwin-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-amd64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-windows-arm64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o $CASPBX-agent-freebsd-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
+    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
-      - $CASPBX-*
+      - ${PROJECT_NAME}-*
     expire_in: 1 day
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
@@ -40256,11 +41128,11 @@ docker:build:
         --build-arg VERSION="${VERSION}" \
         --build-arg COMMIT_ID="${CI_COMMIT_SHORT_SHA}" \
         --build-arg BUILD_DATE="${BUILD_DATE}" \
-        --label "org.opencontainers.image.vendor=$CASAPPS" \
-        --label "org.opencontainers.image.authors=$CASAPPS" \
-        --label "org.opencontainers.image.title=$CASPBX" \
-        --label "org.opencontainers.image.base.name=$CASPBX" \
-        --label "org.opencontainers.image.description=$CASPBX - standard image (alpine)" \
+        --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.title=${PROJECT_NAME}" \
+        --label "org.opencontainers.image.base.name=${PROJECT_NAME}" \
+        --label "org.opencontainers.image.description=${PROJECT_NAME} - standard image (alpine)" \
         --label "org.opencontainers.image.licenses=MIT" \
         --label "org.opencontainers.image.version=${VERSION}" \
         --label "org.opencontainers.image.created=${BUILD_DATE}" \
@@ -40268,11 +41140,11 @@ docker:build:
         --label "org.opencontainers.image.url=${CI_PROJECT_URL}" \
         --label "org.opencontainers.image.source=${CI_PROJECT_URL}" \
         --label "org.opencontainers.image.documentation=${CI_PROJECT_URL}" \
-        --annotation "manifest:org.opencontainers.image.vendor=$CASAPPS" \
-        --annotation "manifest:org.opencontainers.image.authors=$CASAPPS" \
-        --annotation "manifest:org.opencontainers.image.title=$CASPBX" \
-        --annotation "manifest:org.opencontainers.image.base.name=$CASPBX" \
-        --annotation "manifest:org.opencontainers.image.description=$CASPBX - standard image (alpine)" \
+        --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}" \
+        --annotation "manifest:org.opencontainers.image.base.name=${PROJECT_NAME}" \
+        --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - standard image (alpine)" \
         --annotation "manifest:org.opencontainers.image.licenses=MIT" \
         --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
         --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
@@ -40323,10 +41195,10 @@ docker:build-aio:
         --build-arg VERSION="${VERSION}" \
         --build-arg COMMIT_ID="${CI_COMMIT_SHORT_SHA}" \
         --build-arg BUILD_DATE="${BUILD_DATE}" \
-        --label "org.opencontainers.image.vendor=$CASAPPS" \
-        --label "org.opencontainers.image.authors=$CASAPPS" \
-        --label "org.opencontainers.image.title=$CASPBX-aio" \
-        --label "org.opencontainers.image.description=$CASPBX - all-in-one (debian + postgresql + valkey + tor)" \
+        --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.title=${PROJECT_NAME}-aio" \
+        --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
         --label "org.opencontainers.image.licenses=MIT" \
         --label "org.opencontainers.image.version=${VERSION}" \
         --label "org.opencontainers.image.created=${BUILD_DATE}" \
@@ -40334,10 +41206,10 @@ docker:build-aio:
         --label "org.opencontainers.image.url=${CI_PROJECT_URL}" \
         --label "org.opencontainers.image.source=${CI_PROJECT_URL}" \
         --label "org.opencontainers.image.documentation=${CI_PROJECT_URL}" \
-        --annotation "manifest:org.opencontainers.image.vendor=$CASAPPS" \
-        --annotation "manifest:org.opencontainers.image.authors=$CASAPPS" \
-        --annotation "manifest:org.opencontainers.image.title=$CASPBX-aio" \
-        --annotation "manifest:org.opencontainers.image.description=$CASPBX - all-in-one (debian + postgresql + valkey + tor)" \
+        --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}-aio" \
+        --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
         --annotation "manifest:org.opencontainers.image.licenses=MIT" \
         --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
         --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
@@ -40435,12 +41307,12 @@ pipeline {
     }
 
     environment {
-        PROJECTNAME = 'caspbx'
-        PROJECTORG = 'casapps'
+        PROJECTNAME = '{project_name}'
+        PROJECTORG = '{project_org}'
         BINDIR = 'binaries'
         RELDIR = 'releases'
-        GODIR = "/tmp/$CASAPPS/go"
-        GOCACHE = "/tmp/$CASAPPS/go/build"
+        GODIR = "/tmp/${PROJECT_ORG}/go"
+        GOCACHE = "/tmp/${PROJECT_ORG}/go/build"
 
         // =========================================================================
         // GIT PROVIDER CONFIGURATION
@@ -40450,22 +41322,22 @@ pipeline {
         // ----- GITHUB (default) -----
         GIT_FQDN = 'github.com'
         GIT_TOKEN = credentials('github-token')  // Jenkins credentials ID
-        REGISTRY = "ghcr.io/$CASAPPS/$CASPBX"
+        REGISTRY = "ghcr.io/${PROJECT_ORG}/${PROJECT_NAME}"
 
         // ----- GITEA / FORGEJO (self-hosted) -----
         // GIT_FQDN = 'git.example.com'  // Your Gitea/Forgejo domain
         // GIT_TOKEN = credentials('gitea-token')  // Jenkins credentials ID
-        // REGISTRY = "${GIT_FQDN}/$CASAPPS/$CASPBX"
+        // REGISTRY = "${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}"
 
         // ----- GITLAB (gitlab.com or self-hosted) -----
         // GIT_FQDN = 'gitlab.com'  // or your self-hosted GitLab domain
         // GIT_TOKEN = credentials('gitlab-token')  // Jenkins credentials ID
-        // REGISTRY = "registry.${GIT_FQDN}/$CASAPPS/$CASPBX"
+        // REGISTRY = "registry.${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}"
 
         // ----- DOCKER HUB -----
         // GIT_FQDN = 'github.com'  // Git provider (separate from registry)
         // GIT_TOKEN = credentials('github-token')
-        // REGISTRY = "docker.io/$CASAPPS/$CASPBX"
+        // REGISTRY = "docker.io/${PROJECT_ORG}/${PROJECT_NAME}"
 
         // =========================================================================
     }
@@ -40495,7 +41367,7 @@ pipeline {
                     }
                     env.COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     env.BUILD_DATE = sh(script: 'date +"%a %b %d, %Y at %H:%M:%S %Z"', returnStdout: true).trim()
-                    // OFFICIALSITE (optional): Set in Jenkins credentials, or site.txt file, or leave empty
+                    // OFFICIALSITE (optional): site.txt wins; otherwise use Jenkins credentials or leave empty
                     // Never guess or assume - must be explicitly defined by user
                     env.OFFICIALSITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIALSITE:-}"', returnStdout: true).trim()
                     env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildDate=${env.BUILD_DATE}' -X 'main.OfficialSite=${env.OFFICIALSITE}'"
@@ -40523,7 +41395,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-linux-amd64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-linux-amd64 ./src
                         '''
                     }
                 }
@@ -40540,7 +41412,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-linux-arm64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-linux-arm64 ./src
                         '''
                     }
                 }
@@ -40558,7 +41430,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-darwin-amd64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-darwin-amd64 ./src
                         '''
                     }
                 }
@@ -40575,7 +41447,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-darwin-arm64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-darwin-arm64 ./src
                         '''
                     }
                 }
@@ -40593,7 +41465,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-windows-amd64.exe ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-windows-amd64.exe ./src
                         '''
                     }
                 }
@@ -40610,7 +41482,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-windows-arm64.exe ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-windows-arm64.exe ./src
                         '''
                     }
                 }
@@ -40628,7 +41500,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-freebsd-amd64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-freebsd-amd64 ./src
                         '''
                     }
                 }
@@ -40645,7 +41517,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-freebsd-arm64 ./src
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-freebsd-arm64 ./src
                         '''
                     }
                 }
@@ -40671,7 +41543,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-linux-amd64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-amd64 ./src/client
                         '''
                     }
                 }
@@ -40688,7 +41560,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-linux-arm64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-arm64 ./src/client
                         '''
                     }
                 }
@@ -40705,7 +41577,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-darwin-amd64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-amd64 ./src/client
                         '''
                     }
                 }
@@ -40722,7 +41594,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-darwin-arm64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-arm64 ./src/client
                         '''
                     }
                 }
@@ -40739,7 +41611,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-windows-amd64.exe ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-amd64.exe ./src/client
                         '''
                     }
                 }
@@ -40756,7 +41628,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-windows-arm64.exe ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-arm64.exe ./src/client
                         '''
                     }
                 }
@@ -40773,7 +41645,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-freebsd-amd64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-amd64 ./src/client
                         '''
                     }
                 }
@@ -40790,7 +41662,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-cli-freebsd-arm64 ./src/client
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-arm64 ./src/client
                         '''
                     }
                 }
@@ -40816,7 +41688,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-linux-amd64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-linux-amd64 ./src/agent
                         '''
                     }
                 }
@@ -40833,7 +41705,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-linux-arm64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-linux-arm64 ./src/agent
                         '''
                     }
                 }
@@ -40850,7 +41722,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-darwin-amd64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-darwin-amd64 ./src/agent
                         '''
                     }
                 }
@@ -40867,7 +41739,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-darwin-arm64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-darwin-arm64 ./src/agent
                         '''
                     }
                 }
@@ -40884,7 +41756,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-windows-amd64.exe ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent
                         '''
                     }
                 }
@@ -40901,7 +41773,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-windows-arm64.exe ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent
                         '''
                     }
                 }
@@ -40918,7 +41790,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=amd64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-freebsd-amd64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent
                         '''
                     }
                 }
@@ -40935,7 +41807,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=arm64 \
                                 golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/$CASPBX-agent-freebsd-arm64 ./src/agent
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent
                         '''
                     }
                 }
@@ -40967,7 +41839,7 @@ pipeline {
                 sh '''
                     echo "${VERSION}" > ${RELDIR}/version.txt
 
-                    for f in ${BINDIR}/$CASPBX-*; do
+                    for f in ${BINDIR}/${PROJECT_NAME}-*; do
                         [ -f "$f" ] || continue
                         cp "$f" ${RELDIR}/
                     done
@@ -40975,7 +41847,7 @@ pipeline {
                     tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
                         --exclude='.forgejo' --exclude='binaries' --exclude='releases' \
                         --exclude='*.tar.gz' \
-                        -czf ${RELDIR}/$CASPBX-${VERSION}-source.tar.gz .
+                        -czf ${RELDIR}/${PROJECT_NAME}-${VERSION}-source.tar.gz .
                 '''
                 archiveArtifacts artifacts: 'releases/*', fingerprint: true
             }
@@ -40991,7 +41863,7 @@ pipeline {
                 sh '''
                     echo "${VERSION}" > ${RELDIR}/version.txt
 
-                    for f in ${BINDIR}/$CASPBX-*; do
+                    for f in ${BINDIR}/${PROJECT_NAME}-*; do
                         [ -f "$f" ] || continue
                         cp "$f" ${RELDIR}/
                     done
@@ -41010,7 +41882,7 @@ pipeline {
                 sh '''
                     echo "${VERSION}" > ${RELDIR}/version.txt
 
-                    for f in ${BINDIR}/$CASPBX-*; do
+                    for f in ${BINDIR}/${PROJECT_NAME}-*; do
                         [ -f "$f" ] || continue
                         cp "$f" ${RELDIR}/
                     done
@@ -41044,42 +41916,42 @@ pipeline {
                     // Login to container registry
                     // Works with: ghcr.io, registry.gitlab.com, gitea/forgejo, docker.io
                     sh """
-                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u $CASAPPS --password-stdin
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECT_ORG} --password-stdin
                     """
 
                     // Build multi-arch with OCI labels and manifest annotations
                     sh """
-                        docker buildx create --name $CASPBX-builder --use 2>/dev/null || docker buildx use $CASPBX-builder
+                        docker buildx create --name ${PROJECT_NAME}-builder --use 2>/dev/null || docker buildx use ${PROJECT_NAME}-builder
                         docker buildx build \
                             -f docker/Dockerfile \
                             --platform linux/amd64,linux/arm64 \
                             --build-arg VERSION="${VERSION}" \
                             --build-arg COMMIT_ID="${COMMIT_ID}" \
                             --build-arg BUILD_DATE="${BUILD_DATE}" \
-                            --label "org.opencontainers.image.vendor=$CASAPPS" \
-                            --label "org.opencontainers.image.authors=$CASAPPS" \
-                            --label "org.opencontainers.image.title=$CASPBX" \
-                            --label "org.opencontainers.image.base.name=$CASPBX" \
-                            --label "org.opencontainers.image.description=$CASPBX - standard image (alpine)" \
+                            --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.title=${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.base.name=${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.description=${PROJECT_NAME} - standard image (alpine)" \
                             --label "org.opencontainers.image.licenses=MIT" \
                             --label "org.opencontainers.image.version=${VERSION}" \
                             --label "org.opencontainers.image.created=${BUILD_DATE}" \
                             --label "org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.vendor=$CASAPPS" \
-                            --annotation "manifest:org.opencontainers.image.authors=$CASAPPS" \
-                            --annotation "manifest:org.opencontainers.image.title=$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.base.name=$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.description=$CASPBX - standard image (alpine)" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.base.name=${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - standard image (alpine)" \
                             --annotation "manifest:org.opencontainers.image.licenses=MIT" \
                             --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
                             --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
                             --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
                             ${tags} \
                             --push \
                             .
@@ -41113,40 +41985,40 @@ pipeline {
 
                     // Login to container registry
                     sh """
-                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u $CASAPPS --password-stdin
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECT_ORG} --password-stdin
                     """
 
                     // Build multi-arch all-in-one with OCI labels and manifest annotations
                     sh """
-                        docker buildx create --name $CASPBX-builder --use 2>/dev/null || docker buildx use $CASPBX-builder
+                        docker buildx create --name ${PROJECT_NAME}-builder --use 2>/dev/null || docker buildx use ${PROJECT_NAME}-builder
                         docker buildx build \
                             -f docker/Dockerfile.aio \
                             --platform linux/amd64,linux/arm64 \
                             --build-arg VERSION="${VERSION}" \
                             --build-arg COMMIT_ID="${COMMIT_ID}" \
                             --build-arg BUILD_DATE="${BUILD_DATE}" \
-                            --label "org.opencontainers.image.vendor=$CASAPPS" \
-                            --label "org.opencontainers.image.authors=$CASAPPS" \
-                            --label "org.opencontainers.image.title=$CASPBX-aio" \
-                            --label "org.opencontainers.image.description=$CASPBX - all-in-one (debian + postgresql + valkey + tor)" \
+                            --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.title=${PROJECT_NAME}-aio" \
+                            --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
                             --label "org.opencontainers.image.licenses=MIT" \
                             --label "org.opencontainers.image.version=${VERSION}" \
                             --label "org.opencontainers.image.created=${BUILD_DATE}" \
                             --label "org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.vendor=$CASAPPS" \
-                            --annotation "manifest:org.opencontainers.image.authors=$CASAPPS" \
-                            --annotation "manifest:org.opencontainers.image.title=$CASPBX-aio" \
-                            --annotation "manifest:org.opencontainers.image.description=$CASPBX - all-in-one (debian + postgresql + valkey + tor)" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}-aio" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
                             --annotation "manifest:org.opencontainers.image.licenses=MIT" \
                             --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
                             --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
                             --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
-                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/$CASAPPS/$CASPBX" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
                             ${tags} \
                             --push \
                             .
@@ -41173,7 +42045,7 @@ pipeline {
 | Agent labels | `amd64` and `arm64` MUST be available |
 | Docker | Required on all agents (builds use golang:alpine) |
 | Docker buildx | Required on amd64 agent for multi-arch builds |
-| Go caches | `/tmp/casapps/go-cache` and `/tmp/casapps/go-mod-cache` |
+| Go caches | `/tmp/{project_org}/go-cache` and `/tmp/{project_org}/go-mod-cache` |
 
 ### Credentials Setup (Jenkins → Credentials → Add Credentials)
 
@@ -41204,17 +42076,17 @@ In the Jenkinsfile, uncomment the appropriate block:
 // ----- GITHUB (default) -----
 GIT_FQDN = 'github.com'
 GIT_TOKEN = credentials('github-token')
-REGISTRY = "ghcr.io/$CASAPPS/$CASPBX"
+REGISTRY = "ghcr.io/${PROJECT_ORG}/${PROJECT_NAME}"
 
 // ----- GITEA / FORGEJO (self-hosted) -----
 // GIT_FQDN = 'git.example.com'
 // GIT_TOKEN = credentials('gitea-token')
-// REGISTRY = "${GIT_FQDN}/$CASAPPS/$CASPBX"
+// REGISTRY = "${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}"
 
 // ----- GITLAB (gitlab.com or self-hosted) -----
 // GIT_FQDN = 'gitlab.com'
 // GIT_TOKEN = credentials('gitlab-token')
-// REGISTRY = "registry.${GIT_FQDN}/$CASAPPS/$CASPBX"
+// REGISTRY = "registry.${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}"
 ```
 
 ### Triggers Comparison
@@ -41259,11 +42131,11 @@ When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, p
 
 | Test Need | Run It Where |
 |-----------|--------------|
-| Test systemd service install/start/stop | `incus exec test-caspbx -- systemctl ...` |
+| Test systemd service install/start/stop | `incus exec test-{project_name} -- systemctl ...` |
 | Test firewall integration | `docker run --rm --cap-add=NET_ADMIN ...` |
 | Test network interface behavior | `ip netns exec {ns} ...` or inside Incus |
 | Test package install / dependency setup | Inside the build container or test container |
-| Test reboot / service restart behavior | `incus restart test-caspbx` |
+| Test reboot / service restart behavior | `incus restart test-{project_name}` |
 | Test mount / filesystem operations | Inside Incus or VM |
 | Reproduce a kernel-param-dependent bug | Inside VM (QEMU/KVM) |
 
@@ -41277,8 +42149,8 @@ When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, p
 
 | REQUIRED | Example |
 |----------|---------|
-| Temp directory | `/tmp/casapps/caspbx-XXXXXX/` |
-| Volume mounts | `/tmp/casapps/caspbx-XXXXXX/rootfs/` |
+| Temp directory | `/tmp/{project_org}/{internal_name}-XXXXXX/` |
+| Volume mounts | `/tmp/{project_org}/{internal_name}-XXXXXX/volumes/` |
 | Test databases | In temp directory, never project |
 
 **The project directory is for SOURCE CODE ONLY. All runtime/test data goes to the OS temp directory.**
@@ -41296,7 +42168,7 @@ When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, p
 
 **AI must NEVER:**
 - Run `docker compose up` with `docker-compose.yml` or `docker-compose.dev.yml`
-- Use `./rootfs/`, `./docker/rootfs/`, or `./docker/file_system/` for runtime (project directory pollution)
+- Use `./volumes/`, `./docker/rootfs/`, or any other project-directory path for runtime mounts (project directory pollution)
 - Create or modify files in the project directory during testing
 - Mount project directory paths as volumes
 
@@ -41309,14 +42181,14 @@ When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, p
 **AI testing workflow:**
 ```bash
 # 1. Create temp directory (REQUIRED)
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 
 # 2. Copy ONLY docker-compose.test.yml to temp dir
 cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
 
-# 3. Run from temp dir (./rootfs resolves to $TEMP_DIR/rootfs)
+# 3. Run from temp dir (./volumes resolves to $TEMP_DIR/volumes)
 cd "$TEMP_DIR" && docker compose up -d
 
 # 4. Run tests...
@@ -41330,11 +42202,10 @@ rm -rf "$TEMP_DIR"
 
 | Path | Allowed | Why |
 |------|---------|-----|
-| `./rootfs/` | ❌ NEVER | Pollutes project directory |
-| `./docker/rootfs/` | ❌ NEVER | Pollutes project directory |
-| `./docker/file_system/` | ❌ NEVER for runtime | Build-time only (Dockerfile COPY) |
-| `$TEMP_DIR/rootfs/` | ✅ ALWAYS | Proper temp directory isolation |
-| `/tmp/{org}/{project}-XXXXXX/rootfs/` | ✅ ALWAYS | Full path equivalent |
+| `./volumes/` | ❌ NEVER in the source repo | Pollutes project directory |
+| `./docker/rootfs/` | ❌ NEVER for runtime | Build-time overlay only |
+| `$TEMP_DIR/volumes/` | ✅ ALWAYS | Proper temp directory isolation |
+| `/tmp/{org}/{project}-XXXXXX/volumes/` | ✅ ALWAYS | Full path equivalent |
 
 ### Summary
 
@@ -41352,7 +42223,7 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 | File | Location | Created When |
 |------|----------|--------------|
 | `server.yml` | `{config_dir}/server.yml` (see PART 4) | Server first run |
-| `cli.yml` | `~/.config/casapps/caspbx/cli.yml` | CLI first run |
+| `cli.yml` | `~/.config/{project_org}/{internal_name}/cli.yml` | CLI first run |
 | Tor config | `{config_dir}/tor/torrc` (see PART 32) | When Tor enabled |
 | Tor data | `{data_dir}/tor/` (see PART 32) | When Tor enabled |
 
@@ -41379,30 +42250,30 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 
 ## Temporary Directory Structure
 
-**CRITICAL: NEVER use `/tmp` root directory directly. ALWAYS use `/tmp/casapps/caspbx-XXXXXX` structure.**
+**CRITICAL: NEVER use `/tmp` root directory directly. ALWAYS use `/tmp/{project_org}/{internal_name}-XXXXXX` structure.**
 
 **FORBIDDEN:**
 - ❌ `/tmp/myfile` - Root tmp directory
-- ❌ `/tmp/caspbx` - Missing org prefix
+- ❌ `/tmp/{project_name}` - Missing org prefix
 - ❌ `mktemp -d` - No org/project structure
 - ❌ `/tmp/test-data` - Generic paths
 
 **REQUIRED:**
-- ✓ `/tmp/casapps/caspbx-XXXXXX/` - Full structure
+- ✓ `/tmp/{project_org}/{internal_name}-XXXXXX/` - Full structure
 - ✓ `/tmp/cloudops/echoip-aB3xY9/` - Org + project + random
-- ✓ `mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX"` - Proper command
+- ✓ `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` - Proper command
 
 **See "Inferring Variables from Path" section for how to detect `ORG` and `PROJECT`.**
 
 ### Creating Temp Directories
 
-**Always use `casapps/caspbx-` structure for identifiable temp dirs:**
+**Always use `{project_org}/{internal_name}-` structure for identifiable temp dirs:**
 
 | Language | How to Create Prefixed Temp Dir |
 |----------|--------------------------------|
-| Shell | `mkdir -p "${TMPDIR:-/tmp}/$CASAPPS" && mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX"` |
+| Shell | `mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}" && mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` |
 | Go | `os.MkdirAll(filepath.Join(os.TempDir(), projectOrg), 0755); os.MkdirTemp(filepath.Join(os.TempDir(), projectOrg), projectName+"-")` |
-| Python | `os.makedirs(f"{tempfile.gettempdir()}/casapps", exist_ok=True); tempfile.mkdtemp(prefix=f"caspbx-", dir=f"{tempfile.gettempdir()}/casapps")` |
+| Python | `os.makedirs(f"{tempfile.gettempdir()}/{project_org}", exist_ok=True); tempfile.mkdtemp(prefix=f"{project_name}-", dir=f"{tempfile.gettempdir()}/{project_org}")` |
 
 **Result:** `/tmp/cloudops/echoip-aB3xY9` or `/tmp/netutils/pastebin-k9mN2p` (identifiable by org and project)
 
@@ -41410,9 +42281,9 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 
 | Purpose | Path Pattern | Example |
 |---------|--------------|---------|
-| Dev/Test runtime | `{tempdir}/casapps/caspbx-XXXXXX/` | `/tmp/casapps/caspbx-aB3xY9/` |
-| Config volume | `{tempdir}/casapps/caspbx-XXXXXX/rootfs/config/` | `/tmp/casapps/caspbx-aB3xY9/rootfs/config/` |
-| Data volume | `{tempdir}/casapps/caspbx-XXXXXX/rootfs/data/` | `/tmp/casapps/caspbx-aB3xY9/rootfs/data/` |
+| Dev/Test runtime | `{tempdir}/{project_org}/{internal_name}-XXXXXX/` | `/tmp/{project_org}/{internal_name}-aB3xY9/` |
+| Config volume | `{tempdir}/{project_org}/{internal_name}-XXXXXX/volumes/config/` | `/tmp/{project_org}/{internal_name}-aB3xY9/volumes/config/` |
+| Data volume | `{tempdir}/{project_org}/{internal_name}-XXXXXX/volumes/data/` | `/tmp/{project_org}/{internal_name}-aB3xY9/volumes/data/` |
 
 ### OS Temp Directories
 
@@ -41430,44 +42301,44 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 | **NEVER** | Use project directory for test/runtime data |
 | **NEVER** | Hardcode `/tmp` - use `os.TempDir()` or `mktemp` |
 | **NEVER** | Use bare `mktemp -d` without org prefix |
-| **ALWAYS** | Use `casapps/caspbx-` structure for all temp dirs |
+| **ALWAYS** | Use `{project_org}/{internal_name}-` structure for all temp dirs |
 | **ALWAYS** | Detect org from git remote or directory path |
 
 ### Cleanup
 
 ```bash
 # Find all temp dirs for this org
-ls -la "${TMPDIR:-/tmp}/$CASAPPS/"
+ls -la "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
 
 # Clean all temp dirs for this org
-rm -rf "${TMPDIR:-/tmp}/$CASAPPS/"
+rm -rf "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
 ```
 
 ### Correct vs Incorrect
 
 | WRONG | RIGHT | Why |
 |-------|-------|-----|
-| `/tmp/` | `/tmp/casapps/caspbx-XXXXXX/` | NEVER use root tmp |
+| `/tmp/` | `/tmp/{project_org}/{internal_name}-XXXXXX/` | NEVER use root tmp |
 | `/tmp/myfile` | `/tmp/cloudops/echoip-aB3xY9/myfile` | Always use org/project structure |
 | `/tmp/echoip` | `/tmp/cloudops/echoip-kL9mN2/` | Missing org, missing random suffix |
 | `/tmp/test-data/` | `/tmp/devtools/quotesvc-Qw5rT1/test-data/` | Generic path not allowed |
-| `mktemp -d` | `mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX"` | Must include org/project |
+| `mktemp -d` | `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` | Must include org/project |
 | `os.TempDir()` alone | `os.MkdirTemp(filepath.Join(os.TempDir(), projectOrg), projectName+"-")` | Must nest under org |
 | Hardcoded org name | Detect from git remote or path | Auto-detect, never hardcode |
 
-**Rule: ALL temp directories MUST be under `/tmp/casapps/caspbx-XXXXXX/` - no exceptions.**
+**Rule: ALL temp directories MUST be under `/tmp/{project_org}/{internal_name}-XXXXXX/` - no exceptions.**
 
 ### Summary: Temp Directory Rules
 
 **The ONLY acceptable temp directory pattern:**
 ```
-/tmp/casapps/caspbx-XXXXXX/
+/tmp/{project_org}/{internal_name}-XXXXXX/
 ```
 
 **Breaking it down:**
 - `/tmp/` or `$TMPDIR` - OS temp directory base
-- `casapps/` - Organization directory (cloudops, acmesoft, etc.)
-- `caspbx-XXXXXX` - Project directory with random suffix
+- `{project_org}/` - Organization directory (cloudops, acmesoft, etc.)
+- `{project_name}-XXXXXX` - Project directory with random suffix
 
 **Examples of CORRECT paths:**
 - `/tmp/cloudops/echoip-aB3xY9/` ✓
@@ -41482,7 +42353,7 @@ rm -rf "${TMPDIR:-/tmp}/$CASAPPS/"
 
 **Why this structure:**
 - Prevents conflicts between projects
-- Makes cleanup easy (`rm -rf /tmp/casapps/`)
+- Makes cleanup easy (`rm -rf /tmp/{project_org}/`)
 - Identifies which project created temp files
 - Prevents pollution of root `/tmp` directory
 - Multiple projects can run simultaneously
@@ -41501,8 +42372,8 @@ rm -rf "${TMPDIR:-/tmp}/$CASAPPS/"
 | **NEVER run binaries locally** | All binaries run inside containers, never directly |
 | **NEVER** | Run `go build` directly on local machine |
 | **NEVER** | Run `go test` directly on local machine |
-| **NEVER** | Run `binaries/caspbx` on local machine |
-| **NEVER** | Run `$BUILD_DIR/caspbx` on local machine |
+| **NEVER** | Run `binaries/{project_name}` on local machine |
+| **NEVER** | Run `$BUILD_DIR/{project_name}` on local machine |
 | **ALWAYS** | Build inside container, run inside container |
 
 ### Container Types
@@ -41520,27 +42391,48 @@ rm -rf "${TMPDIR:-/tmp}/$CASAPPS/"
 | Test Type | Files | Run With | Tests |
 |-----------|-------|----------|-------|
 | **Go Unit Tests** | `*_test.go` | `go test` | Function/package logic, no server |
-| **Integration Tests** | `tests/*.sh` | Shell scripts | Full server, API endpoints, auth |
+| **Integration Tests** | `./tests/*.sh` | Executable shell scripts | Full server, API endpoints, auth |
 
 **Go Unit Tests (`*_test.go`):**
 - Test individual functions and packages
 - No server running required
 - Fast, run frequently during development
+- Create or update the matching `*_test.go` immediately when you add or change package logic
 - Run with `make test`
 
-**Integration Tests (`tests/*.sh`):**
+**Integration Tests (`./tests/*.sh`):**
 - Test complete running server
 - Test API endpoints, .txt extension, Accept headers
 - Test authentication, admin routes
 - Test project-specific functionality (from IDEA.md)
 - Run with `./tests/run_tests.sh`
+- `./tests/*` means executable shell scripts in the repository-root `tests/` directory
+- Minimum required scripts: `./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh`
+- Additional helper scripts are allowed (for example `./tests/test_content_negotiation.sh`)
+- These scripts complement integration coverage; they do **NOT** replace required Go unit tests in `*_test.go`
+
+### What Goes in `*_test.go` vs `./tests/*.sh` — and Why
+
+| Put it in... | Use for... | Why it belongs there |
+|--------------|------------|----------------------|
+| `*_test.go` | Package logic, pure functions, validation, parsing, normalization, config loading, path helpers, mode detection, data transforms, error mapping, handler logic that can be tested with mocks/httptest | `go test -cover` measures Go code coverage here. These tests are fast, deterministic, and prove every branch/error path in the package logic |
+| `./tests/*.sh` | Full running server behavior, route coverage, auth flows, content negotiation, `.txt` endpoints, CLI/server/agent interaction, service install/startup behavior, container/Incus scenarios | These tests prove the real binaries work together end-to-end in a realistic environment. They verify behavior that unit tests alone cannot prove |
+
+**Decision rule:**
+- If the behavior can be proven without starting the full application, it belongs in `*_test.go`
+- If the behavior requires a running binary, real HTTP requests, real process execution, or container/Incus setup, it belongs in `./tests/*.sh`
+
+**Reason both are required:**
+- `*_test.go` exists to achieve and enforce **100% Go code coverage** via `go test -cover`
+- `./tests/*.sh` exists to achieve and enforce **100% endpoint/route/integration coverage**
+- One does **not** replace the other; they measure different things and catch different classes of bugs
 
 ### Testing Requirements Summary
 
 **BOTH types of tests are REQUIRED for all projects:**
 
 1. **Go Unit Tests** (`*_test.go`) - Test package logic
-2. **Integration Tests** (`tests/*.sh`) - Test full running application
+2. **Integration Tests** (`./tests/*.sh`) - Test full running application
 
 **Integration tests MUST be comprehensive:**
 - ✓ Test ALL project-specific endpoints (IDEA.md)
@@ -41586,7 +42478,6 @@ curl -q -LSsf -H "Accept: text/plain" /api/v1/jokes/random         # Plain text 
 ```bash
 # Every *.txt endpoint MUST be tested:
 curl -q -LSsf /robots.txt                            # Robots file
-curl -q -LSsf /security.txt                          # Security policy
 curl -q -LSsf /.well-known/security.txt              # Security policy (well-known)
 curl -q -LSsf /api/v1/jokes/random.txt               # API .txt extension
 
@@ -41632,7 +42523,6 @@ done
 # Backend .txt endpoints - test ALL of them
 txt_endpoints=(
     "/robots.txt"
-    "/security.txt"
     "/.well-known/security.txt"
     "/api/v1/jokes/random.txt"
     "/api/v1/users/john.txt"
@@ -41664,10 +42554,10 @@ GET    /api/{api_version}/users/{username}     # Read public profile (API JSON)
 GET    /api/{api_version}/users/{username}.txt # Read public profile (API plain text)
 
 # API - Admin managing users (by ID)
-GET    /api/{api_version}/{admin_path}/users        # List all users (admin)
-GET    /api/{api_version}/{admin_path}/users/1      # Read specific user (admin)
-PATCH  /api/{api_version}/{admin_path}/users/1      # Update specific user (admin)
-DELETE /api/{api_version}/{admin_path}/users/1      # Delete specific user (admin)
+GET    /api/{api_version}/server/{admin_path}/config/users        # List all users (admin)
+GET    /api/{api_version}/server/{admin_path}/config/users/1      # Read specific user (admin)
+PATCH  /api/{api_version}/server/{admin_path}/config/users/1      # Update specific user (admin)
+DELETE /api/{api_version}/server/{admin_path}/config/users/1      # Delete specific user (admin)
 
 # Frontend routes (smart detection) - CLI gets beautiful formatted text via HTML2TextConverter
 curl -q -LSsf /users                              # CLI → formatted text (current user)
@@ -41727,7 +42617,9 @@ curl -q -LSsf /links/abc123                   # Link details (text)
 
 ### Go Unit Test Requirements
 
-**Every package with logic SHOULD have unit tests:**
+**Every package with logic MUST have unit tests:**
+
+**Timing rule:** Do NOT defer unit tests to the end. When you add or change logic in a package, create or update the matching `*_test.go` in the same work pass.
 
 | Package | Test File | What to Test |
 |---------|-----------|--------------|
@@ -41786,8 +42678,8 @@ make test
 |--------------|-----------|
 | **Public API** | All `/api/{api_version}/*` endpoints |
 | **Public Web** | All frontend routes |
-| **Admin API** | All `/api/{api_version}/{admin_path}/*` endpoints |
-| **Admin Web** | All `/{admin_path}/*` routes |
+| **Admin API** | All `/api/{api_version}/server/{admin_path}/*` endpoints |
+| **Admin Web** | All `/server/{admin_path}/*` routes |
 | **Error cases** | 400, 401, 403, 404, 500 responses |
 | **Edge cases** | Empty data, invalid input, rate limits |
 
@@ -41908,9 +42800,9 @@ test_endpoint GET "/api/{api_version}/jokes/categories"
 test_endpoint GET "/api/{api_version}/jokes/{id}"
 
 # ADMIN API (with auth)
-test_endpoint GET "/api/{api_version}/{admin_path}/server/settings"
-test_endpoint PUT "/api/{api_version}/{admin_path}/server/settings"
-test_endpoint GET "/api/{api_version}/{admin_path}/server/logs"
+test_endpoint GET "/api/{api_version}/server/{admin_path}/config/settings"
+test_endpoint PUT "/api/{api_version}/server/{admin_path}/config/settings"
+test_endpoint GET "/api/{api_version}/server/{admin_path}/config/logs"
 
 # At end: verify ALL endpoints were tested
 verify_all_endpoints_tested
@@ -41982,28 +42874,28 @@ verify_all_endpoints_tested
 
 ```bash
 # 1. Build in Docker (always use Docker for builds)
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
 docker run --rm -v $(pwd):/build -w /build -e CGO_ENABLED=0 \
-  golang:alpine go build -o /build/binaries/caspbx ./src
+  golang:alpine go build -o /build/binaries/{project_name} ./src
 
 # 2. Test (prefer Incus, fallback to Docker)
 if command -v incus &>/dev/null; then
   # PREFERRED: Full OS test in Incus (debian + systemd)
   # Use latest Debian stable (currently 13/trixie)
   echo "Testing with Incus (Debian + systemd)..."
-  incus launch images:debian/trixie test-caspbx
-  incus file push binaries/caspbx test-caspbx/usr/local/bin/
-  incus exec test-caspbx -- chmod +x /usr/local/bin/caspbx
-  incus exec test-caspbx -- caspbx --help
-  incus exec test-caspbx -- caspbx --service --install
-  incus exec test-caspbx -- systemctl status caspbx
-  incus delete test-caspbx --force
+  incus launch images:debian/trixie test-{project_name}
+  incus file push binaries/{project_name} test-{project_name}/usr/local/bin/
+  incus exec test-{project_name} -- chmod +x /usr/local/bin/{project_name}
+  incus exec test-{project_name} -- {project_name} --help
+  incus exec test-{project_name} -- {project_name} --service --install
+  incus exec test-{project_name} -- systemctl status {project_name}
+  incus delete test-{project_name} --force
 else
   # FALLBACK: Quick test in Docker (alpine, no systemd)
   echo "Incus not available, testing with Docker..."
   docker run --rm -v $(pwd)/binaries:/app alpine:latest \
-    /app/caspbx --help
+    /app/{project_name} --help
 fi
 ```
 
@@ -42020,6 +42912,8 @@ fi
 ### Test Scripts (tests/ directory)
 
 **ALL projects MUST have these test scripts in `tests/` directory:**
+
+**Definition:** Everywhere in this specification, `./tests/*` means executable shell scripts under the repository-root `tests/` directory. It does **not** refer to Go `*_test.go` files.
 
 | Script | Purpose | Container | Tests |
 |--------|---------|-----------|-------|
@@ -42062,8 +42956,8 @@ PROJECTNAME=$(basename "$PWD")
 PROJECTORG=$(basename "$(dirname "$PWD")")
 
 # Create temp directory for build
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
 trap "rm -rf $BUILD_DIR" EXIT
 
 # Go cache directories (same as Makefile)
@@ -42081,18 +42975,18 @@ GO_DOCKER="docker run --rm \
   golang:alpine"
 
 echo "Building server binary in Docker..."
-$GO_DOCKER go build -o "$BUILD_DIR/$CASPBX" ./src
+$GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}" ./src
 
 # Build client if exists
 if [ -d "src/client" ]; then
     echo "Building client in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/$CASPBX-cli" ./src/client
+    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-cli" ./src/client
 fi
 
 # Build agent if exists
 if [ -d "src/agent" ]; then
     echo "Building agent in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/$CASPBX-agent" ./src/agent
+    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-agent" ./src/agent
 fi
 
 echo "Testing in Docker (Alpine)..."
@@ -42104,22 +42998,22 @@ docker run --rm \
     # Install required tools for testing
     apk add --no-cache curl bash file jq >/dev/null
 
-    chmod +x /app/$CASPBX
-    [ -f /app/$CASPBX-cli ] && chmod +x /app/$CASPBX-cli
-    [ -f /app/$CASPBX-agent ] && chmod +x /app/$CASPBX-agent
+    chmod +x /app/${PROJECT_NAME}
+    [ -f /app/${PROJECT_NAME}-cli ] && chmod +x /app/${PROJECT_NAME}-cli
+    [ -f /app/${PROJECT_NAME}-agent ] && chmod +x /app/${PROJECT_NAME}-agent
 
     echo '=== Version Check ==='
-    /app/$CASPBX --version
+    /app/${PROJECT_NAME} --version
 
     echo '=== Help Check ==='
-    /app/$CASPBX --help
+    /app/${PROJECT_NAME} --help
 
     echo '=== Binary Info ==='
-    ls -lh /app/$CASPBX
-    file /app/$CASPBX
+    ls -lh /app/${PROJECT_NAME}
+    file /app/${PROJECT_NAME}
 
     echo '=== Starting Server for API Tests ==='
-    /app/$CASPBX --port 64580 > /tmp/server.log 2>&1 &
+    /app/${PROJECT_NAME} --port 64580 > /tmp/server.log 2>&1 &
     SERVER_PID=\$!
     sleep 3
     # Show setup token if present (for debugging)
@@ -42127,16 +43021,16 @@ docker run --rm \
 
     echo '=== API Endpoint Tests ==='
     # Test JSON response (default)
-    curl -q -LSsf http://localhost:64580/api/{api_version}/healthz || echo 'FAILED: /api/{api_version}/healthz'
+    curl -q -LSsf http://localhost:64580/api/{api_version}/server/healthz || echo 'FAILED: /api/{api_version}/server/healthz'
 
     # Test .txt extension (plain text)
-    curl -q -LSsf http://localhost:64580/api/{api_version}/healthz.txt || echo 'FAILED: /api/{api_version}/healthz.txt'
+    curl -q -LSsf http://localhost:64580/api/{api_version}/server/healthz.txt || echo 'FAILED: /api/{api_version}/server/healthz.txt'
 
     # Test Accept header: application/json
-    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/healthz || echo 'FAILED: Accept JSON'
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz || echo 'FAILED: Accept JSON'
 
     # Test Accept header: text/plain
-    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/healthz || echo 'FAILED: Accept text/plain'
+    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/server/healthz || echo 'FAILED: Accept text/plain'
 
     echo '=== Project-Specific Endpoint Tests ==='
     # MUST test ALL endpoints from IDEA.md - both API and frontend
@@ -42161,9 +43055,9 @@ docker run --rm \
     #   curl -q -LSsf http://localhost:64580/api/{api_version}/users/testuser || echo 'FAILED: READ public profile API JSON'
     #   curl -q -LSsf http://localhost:64580/api/{api_version}/users/testuser.txt || echo 'FAILED: READ public profile API .txt'
     #   # API - Admin routes (by ID)
-    #   curl -q -LSsf http://localhost:64580/api/{api_version}/{admin_path}/users || echo 'FAILED: LIST users admin API'
-    #   curl -q -LSsf http://localhost:64580/api/{api_version}/{admin_path}/users/1 || echo 'FAILED: READ user admin API'
-    #   curl -q -LSsf -X DELETE http://localhost:64580/api/{api_version}/{admin_path}/users/1 || echo 'FAILED: DELETE user admin API'
+    #   curl -q -LSsf http://localhost:64580/api/{api_version}/server/{admin_path}/config/users || echo 'FAILED: LIST users admin API'
+    #   curl -q -LSsf http://localhost:64580/api/{api_version}/server/{admin_path}/config/users/1 || echo 'FAILED: READ user admin API'
+    #   curl -q -LSsf -X DELETE http://localhost:64580/api/{api_version}/server/{admin_path}/config/users/1 || echo 'FAILED: DELETE user admin API'
     #   # Frontend (smart detection - test with text for simplicity)
     #   USERS=\$(curl -q -LSsf http://localhost:64580/users)  # CLI auto-detects text (current user)
     #   USER=\$(curl -q -LSsf http://localhost:64580/testuser)  # CLI auto-detects text (public profile)
@@ -42182,13 +43076,13 @@ docker run --rm \
             -H \"X-Setup-Token: \$SETUP_TOKEN\" \\
             -H \"Content-Type: application/json\" \\
             -d '{\"username\":\"testadmin\",\"password\":\"TestPass123!\"}' \\
-            http://localhost:64580/api/{api_version}/{admin_path}/setup || echo 'Admin setup failed (may already exist)'
+            http://localhost:64580/api/{api_version}/server/{admin_path}/setup || echo 'Admin setup failed (may already exist)'
 
         # Login and get session
         SESSION=\$(curl -q -LSsf -X POST \\
             -H \"Content-Type: application/json\" \\
             -d '{\"username\":\"testadmin\",\"password\":\"TestPass123!\"}' \\
-            http://localhost:64580/api/{api_version}/{admin_path}/login | grep -oP '\"session_token\":\\s*\"\\K[^\"]+' || echo '')
+            http://localhost:64580/api/{api_version}/server/{admin_path}/login | grep -oP '\"session_token\":\\s*\"\\K[^\"]+' || echo '')
 
         if [ -n \"\$SESSION\" ]; then
             echo '✓ Admin login successful'
@@ -42196,7 +43090,7 @@ docker run --rm \
             # Generate API token for CLI/Agent testing
             API_TOKEN=\$(curl -q -LSsf -X POST \\
                 -H \"Authorization: Bearer \$SESSION\" \\
-                http://localhost:64580/api/{api_version}/{admin_path}/profile/token | grep -oP '\"token\":\\s*\"\\K[^\"]+' || echo '')
+                http://localhost:64580/api/{api_version}/server/{admin_path}/{admin_username}/profile/token | grep -oP '\"token\":\\s*\"\\K[^\"]+' || echo '')
 
             if [ -n \"\$API_TOKEN\" ]; then
                 echo \"✓ API token created: \${API_TOKEN:0:12}...\"
@@ -42212,7 +43106,7 @@ docker run --rm \
 
     echo '=== Binary Rename Tests ==='
     # Test that binaries show ACTUAL name in --help/--version (not hardcoded)
-    cp /app/$CASPBX /app/renamed-server
+    cp /app/${PROJECT_NAME} /app/renamed-server
     chmod +x /app/renamed-server
     if /app/renamed-server --help 2>&1 | grep -q 'renamed-server'; then
         echo '✓ Server binary rename works (--help shows actual name)'
@@ -42221,12 +43115,12 @@ docker run --rm \
     fi
 
     echo '=== Client Tests (if exists) ==='
-    if [ -f /app/$CASPBX-cli ]; then
-        /app/$CASPBX-cli --version || echo 'FAILED: CLI --version'
-        /app/$CASPBX-cli --help || echo 'FAILED: CLI --help'
+    if [ -f /app/${PROJECT_NAME}-cli ]; then
+        /app/${PROJECT_NAME}-cli --version || echo 'FAILED: CLI --version'
+        /app/${PROJECT_NAME}-cli --help || echo 'FAILED: CLI --help'
 
         # Test binary rename
-        cp /app/$CASPBX-cli /app/renamed-cli
+        cp /app/${PROJECT_NAME}-cli /app/renamed-cli
         chmod +x /app/renamed-cli
         if /app/renamed-cli --help 2>&1 | grep -q 'renamed-cli'; then
             echo '✓ CLI binary rename works'
@@ -42238,24 +43132,24 @@ docker run --rm \
         echo '--- CLI Full Functionality Tests ---'
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test with API token
-            /app/$CASPBX-cli --server http://localhost:64580 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
+            /app/${PROJECT_NAME}-cli --server http://localhost:64580 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
             # Project-specific CLI commands go here (IDEA.md)
-            # Example: /app/$CASPBX-cli --server http://localhost:64580 --token \"\$API_TOKEN\" list
+            # Example: /app/${PROJECT_NAME}-cli --server http://localhost:64580 --token \"\$API_TOKEN\" list
         else
             # Test without token (anonymous if allowed)
-            /app/$CASPBX-cli --server http://localhost:64580 status || echo 'CLI status (no token) failed or not applicable'
+            /app/${PROJECT_NAME}-cli --server http://localhost:64580 status || echo 'CLI status (no token) failed or not applicable'
         fi
     else
         echo 'client not built - skipping'
     fi
 
     echo '=== Agent Tests (if exists) ==='
-    if [ -f /app/$CASPBX-agent ]; then
-        /app/$CASPBX-agent --version || echo 'FAILED: Agent --version'
-        /app/$CASPBX-agent --help || echo 'FAILED: Agent --help'
+    if [ -f /app/${PROJECT_NAME}-agent ]; then
+        /app/${PROJECT_NAME}-agent --version || echo 'FAILED: Agent --version'
+        /app/${PROJECT_NAME}-agent --help || echo 'FAILED: Agent --help'
 
         # Test binary rename
-        cp /app/$CASPBX-agent /app/renamed-agent
+        cp /app/${PROJECT_NAME}-agent /app/renamed-agent
         chmod +x /app/renamed-agent
         if /app/renamed-agent --help 2>&1 | grep -q 'renamed-agent'; then
             echo '✓ Agent binary rename works'
@@ -42267,7 +43161,7 @@ docker run --rm \
         echo '--- Agent Full Functionality Tests ---'
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test agent registration/status with API token
-            /app/$CASPBX-agent --server http://localhost:64580 --token \"\$API_TOKEN\" status || echo 'Agent status failed'
+            /app/${PROJECT_NAME}-agent --server http://localhost:64580 --token \"\$API_TOKEN\" status || echo 'Agent status failed'
             # Project-specific agent commands go here (IDEA.md)
         else
             echo 'Agent tests skipped (no API token)'
@@ -42303,14 +43197,14 @@ fi
 # Detect project info
 PROJECTNAME=$(basename "$PWD")
 PROJECTORG=$(basename "$(dirname "$PWD")")
-CONTAINER_NAME="test-$CASPBX-$$"
+CONTAINER_NAME="test-${PROJECT_NAME}-$$"
 
 # Incus image - use latest Debian stable (update when new stable releases)
 INCUS_IMAGE="images:debian/trixie"
 
 # Create temp directory for build
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
 trap "rm -rf $BUILD_DIR; incus delete $CONTAINER_NAME --force 2>/dev/null || true" EXIT
 
 # Go cache directories (same as Makefile)
@@ -42328,18 +43222,18 @@ GO_DOCKER="docker run --rm \
   golang:alpine"
 
 echo "Building server binary in Docker..."
-$GO_DOCKER go build -o "$BUILD_DIR/$CASPBX" ./src
+$GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}" ./src
 
 # Build client if exists
 if [ -d "src/client" ]; then
     echo "Building client in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/$CASPBX-cli" ./src/client
+    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-cli" ./src/client
 fi
 
 # Build agent if exists
 if [ -d "src/agent" ]; then
     echo "Building agent in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/$CASPBX-agent" ./src/agent
+    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-agent" ./src/agent
 fi
 
 echo "Launching Incus container (Debian + systemd)..."
@@ -42349,19 +43243,19 @@ incus launch "$INCUS_IMAGE" "$CONTAINER_NAME"
 sleep 2
 
 echo "Copying binaries to container..."
-incus file push "$BUILD_DIR/$CASPBX" "$CONTAINER_NAME/usr/local/bin/"
-incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/$CASPBX"
+incus file push "$BUILD_DIR/${PROJECT_NAME}" "$CONTAINER_NAME/usr/local/bin/"
+incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/${PROJECT_NAME}"
 
 # Copy client if built
-if [ -f "$BUILD_DIR/$CASPBX-cli" ]; then
-    incus file push "$BUILD_DIR/$CASPBX-cli" "$CONTAINER_NAME/usr/local/bin/"
-    incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/$CASPBX-cli"
+if [ -f "$BUILD_DIR/${PROJECT_NAME}-cli" ]; then
+    incus file push "$BUILD_DIR/${PROJECT_NAME}-cli" "$CONTAINER_NAME/usr/local/bin/"
+    incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/${PROJECT_NAME}-cli"
 fi
 
 # Copy agent if built
-if [ -f "$BUILD_DIR/$CASPBX-agent" ]; then
-    incus file push "$BUILD_DIR/$CASPBX-agent" "$CONTAINER_NAME/usr/local/bin/"
-    incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/$CASPBX-agent"
+if [ -f "$BUILD_DIR/${PROJECT_NAME}-agent" ]; then
+    incus file push "$BUILD_DIR/${PROJECT_NAME}-agent" "$CONTAINER_NAME/usr/local/bin/"
+    incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/${PROJECT_NAME}-agent"
 fi
 
 # Ensure curl is available for testing
@@ -42372,38 +43266,38 @@ incus exec "$CONTAINER_NAME" -- bash -c "
     set -e
 
     echo '=== Version Check ==='
-    $CASPBX --version
+    ${PROJECT_NAME} --version
 
     echo '=== Help Check ==='
-    $CASPBX --help
+    ${PROJECT_NAME} --help
 
     echo '=== Binary Info ==='
-    ls -lh /usr/local/bin/$CASPBX
-    file /usr/local/bin/$CASPBX
+    ls -lh /usr/local/bin/${PROJECT_NAME}
+    file /usr/local/bin/${PROJECT_NAME}
 
     echo '=== Service Install Test ==='
-    $CASPBX --service --install
+    ${PROJECT_NAME} --service --install
 
     echo '=== Service Status ==='
-    systemctl status $CASPBX || true
+    systemctl status ${PROJECT_NAME} || true
 
     echo '=== Service Start Test ==='
-    systemctl start $CASPBX
+    systemctl start ${PROJECT_NAME}
     sleep 2
-    systemctl status $CASPBX
+    systemctl status ${PROJECT_NAME}
 
     echo '=== API Endpoint Tests ==='
     # Test JSON response (default)
-    curl -q -LSsf http://localhost:80/api/{api_version}/healthz || echo 'FAILED: /api/{api_version}/healthz'
+    curl -q -LSsf http://localhost:80/api/{api_version}/server/healthz || echo 'FAILED: /api/{api_version}/server/healthz'
 
     # Test .txt extension (plain text)
-    curl -q -LSsf http://localhost:80/api/{api_version}/healthz.txt || echo 'FAILED: /api/{api_version}/healthz.txt'
+    curl -q -LSsf http://localhost:80/api/{api_version}/server/healthz.txt || echo 'FAILED: /api/{api_version}/server/healthz.txt'
 
     # Test Accept header: application/json
-    curl -q -LSsf -H 'Accept: application/json' http://localhost:80/healthz || echo 'FAILED: Accept JSON'
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:80/server/healthz || echo 'FAILED: Accept JSON'
 
     # Test Accept header: text/plain
-    curl -q -LSsf -H 'Accept: text/plain' http://localhost:80/healthz || echo 'FAILED: Accept text/plain'
+    curl -q -LSsf -H 'Accept: text/plain' http://localhost:80/server/healthz || echo 'FAILED: Accept text/plain'
 
     echo '=== Project-Specific Endpoint Tests ==='
     # MUST test ALL endpoints from IDEA.md - both API and frontend
@@ -42428,9 +43322,9 @@ incus exec "$CONTAINER_NAME" -- bash -c "
     #   curl -q -LSsf http://localhost:80/api/{api_version}/users/testuser || echo 'FAILED: READ public profile API JSON'
     #   curl -q -LSsf http://localhost:80/api/{api_version}/users/testuser.txt || echo 'FAILED: READ public profile API .txt'
     #   # API - Admin routes (by ID)
-    #   curl -q -LSsf http://localhost:80/api/{api_version}/{admin_path}/users || echo 'FAILED: LIST users admin API'
-    #   curl -q -LSsf http://localhost:80/api/{api_version}/{admin_path}/users/1 || echo 'FAILED: READ user admin API'
-    #   curl -q -LSsf -X DELETE http://localhost:80/api/{api_version}/{admin_path}/users/1 || echo 'FAILED: DELETE user admin API'
+    #   curl -q -LSsf http://localhost:80/api/{api_version}/server/{admin_path}/config/users || echo 'FAILED: LIST users admin API'
+    #   curl -q -LSsf http://localhost:80/api/{api_version}/server/{admin_path}/config/users/1 || echo 'FAILED: READ user admin API'
+    #   curl -q -LSsf -X DELETE http://localhost:80/api/{api_version}/server/{admin_path}/config/users/1 || echo 'FAILED: DELETE user admin API'
     #   # Frontend (smart detection - test with text for simplicity)
     #   USERS=\$(curl -q -LSsf http://localhost:80/users)  # CLI auto-detects text (current user)
     #   USER=\$(curl -q -LSsf http://localhost:80/testuser)  # CLI auto-detects text (public profile)
@@ -42439,7 +43333,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
 
     echo '=== Admin Setup & API Token Creation ==='
     # Get setup token from journal
-    SETUP_TOKEN=\$(journalctl -u $CASPBX --no-pager 2>/dev/null | grep -oP 'Setup Token.*:\\s*\\K[a-f0-9]+' | head -1 || echo '')
+    SETUP_TOKEN=\$(journalctl -u ${PROJECT_NAME} --no-pager 2>/dev/null | grep -oP 'Setup Token.*:\\s*\\K[a-f0-9]+' | head -1 || echo '')
 
     if [ -n \"\$SETUP_TOKEN\" ]; then
         echo \"Setup token found: \${SETUP_TOKEN:0:8}...\"
@@ -42449,13 +43343,13 @@ incus exec "$CONTAINER_NAME" -- bash -c "
             -H \"X-Setup-Token: \$SETUP_TOKEN\" \\
             -H \"Content-Type: application/json\" \\
             -d '{\"username\":\"testadmin\",\"password\":\"TestPass123!\"}' \\
-            http://localhost:80/api/{api_version}/{admin_path}/setup || echo 'Admin setup failed (may already exist)'
+            http://localhost:80/api/{api_version}/server/{admin_path}/setup || echo 'Admin setup failed (may already exist)'
 
         # Login and get session
         SESSION=\$(curl -q -LSsf -X POST \\
             -H \"Content-Type: application/json\" \\
             -d '{\"username\":\"testadmin\",\"password\":\"TestPass123!\"}' \\
-            http://localhost:80/api/{api_version}/{admin_path}/login | grep -oP '\"session_token\":\\s*\"\\K[^\"]+' || echo '')
+            http://localhost:80/api/{api_version}/server/{admin_path}/login | grep -oP '\"session_token\":\\s*\"\\K[^\"]+' || echo '')
 
         if [ -n \"\$SESSION\" ]; then
             echo '✓ Admin login successful'
@@ -42463,7 +43357,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
             # Generate API token for CLI/Agent testing
             API_TOKEN=\$(curl -q -LSsf -X POST \\
                 -H \"Authorization: Bearer \$SESSION\" \\
-                http://localhost:80/api/{api_version}/{admin_path}/profile/token | grep -oP '\"token\":\\s*\"\\K[^\"]+' || echo '')
+                http://localhost:80/api/{api_version}/server/{admin_path}/{admin_username}/profile/token | grep -oP '\"token\":\\s*\"\\K[^\"]+' || echo '')
 
             if [ -n \"\$API_TOKEN\" ]; then
                 echo \"✓ API token created: \${API_TOKEN:0:12}...\"
@@ -42479,7 +43373,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
 
     echo '=== Binary Rename Tests ==='
     # Test that binaries show ACTUAL name in --help/--version (not hardcoded)
-    cp /usr/local/bin/$CASPBX /tmp/renamed-server
+    cp /usr/local/bin/${PROJECT_NAME} /tmp/renamed-server
     chmod +x /tmp/renamed-server
     if /tmp/renamed-server --help 2>&1 | grep -q 'renamed-server'; then
         echo '✓ Server binary rename works (--help shows actual name)'
@@ -42488,12 +43382,12 @@ incus exec "$CONTAINER_NAME" -- bash -c "
     fi
 
     echo '=== Client Tests (if exists) ==='
-    if [ -f /usr/local/bin/$CASPBX-cli ]; then
-        $CASPBX-cli --version || echo 'FAILED: CLI --version'
-        $CASPBX-cli --help || echo 'FAILED: CLI --help'
+    if [ -f /usr/local/bin/${PROJECT_NAME}-cli ]; then
+        ${PROJECT_NAME}-cli --version || echo 'FAILED: CLI --version'
+        ${PROJECT_NAME}-cli --help || echo 'FAILED: CLI --help'
 
         # Test binary rename
-        cp /usr/local/bin/$CASPBX-cli /tmp/renamed-cli
+        cp /usr/local/bin/${PROJECT_NAME}-cli /tmp/renamed-cli
         chmod +x /tmp/renamed-cli
         if /tmp/renamed-cli --help 2>&1 | grep -q 'renamed-cli'; then
             echo '✓ CLI binary rename works'
@@ -42505,23 +43399,23 @@ incus exec "$CONTAINER_NAME" -- bash -c "
         echo '--- CLI Full Functionality Tests ---'
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test with API token
-            $CASPBX-cli --server http://localhost:80 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
+            ${PROJECT_NAME}-cli --server http://localhost:80 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
             # Project-specific CLI commands go here (IDEA.md)
         else
             # Test without token (anonymous if allowed)
-            $CASPBX-cli --server http://localhost:80 status || echo 'CLI status (no token) failed or not applicable'
+            ${PROJECT_NAME}-cli --server http://localhost:80 status || echo 'CLI status (no token) failed or not applicable'
         fi
     else
         echo 'client not installed - skipping'
     fi
 
     echo '=== Agent Tests (if exists) ==='
-    if [ -f /usr/local/bin/$CASPBX-agent ]; then
-        $CASPBX-agent --version || echo 'FAILED: Agent --version'
-        $CASPBX-agent --help || echo 'FAILED: Agent --help'
+    if [ -f /usr/local/bin/${PROJECT_NAME}-agent ]; then
+        ${PROJECT_NAME}-agent --version || echo 'FAILED: Agent --version'
+        ${PROJECT_NAME}-agent --help || echo 'FAILED: Agent --help'
 
         # Test binary rename
-        cp /usr/local/bin/$CASPBX-agent /tmp/renamed-agent
+        cp /usr/local/bin/${PROJECT_NAME}-agent /tmp/renamed-agent
         chmod +x /tmp/renamed-agent
         if /tmp/renamed-agent --help 2>&1 | grep -q 'renamed-agent'; then
             echo '✓ Agent binary rename works'
@@ -42533,7 +43427,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
         echo '--- Agent Full Functionality Tests ---'
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test agent registration/status with API token
-            $CASPBX-agent --server http://localhost:80 --token \"\$API_TOKEN\" status || echo 'Agent status failed'
+            ${PROJECT_NAME}-agent --server http://localhost:80 --token \"\$API_TOKEN\" status || echo 'Agent status failed'
             # Project-specific agent commands go here (IDEA.md)
         else
             echo 'Agent tests skipped (no API token)'
@@ -42543,7 +43437,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
     fi
 
     echo '=== Service Stop Test ==='
-    systemctl stop $CASPBX
+    systemctl stop ${PROJECT_NAME}
 
     echo '=== All tests passed ==='
 "
@@ -42609,14 +43503,14 @@ See PART 33: "Shell Completions (Built-in)" for full implementation details.
 
 ```bash
 # Generate and install completions (prints to stdout, user redirects)
-caspbx --shell completions bash > /etc/bash_completion.d/caspbx
-caspbx-cli --shell completions bash > /etc/bash_completion.d/caspbx-cli
-caspbx-agent --shell completions bash > /etc/bash_completion.d/caspbx-agent
+{project_name} --shell completions bash > /etc/bash_completion.d/{project_name}
+{project_name}-cli --shell completions bash > /etc/bash_completion.d/{project_name}-cli
+{project_name}-agent --shell completions bash > /etc/bash_completion.d/{project_name}-agent
 
 # Or use eval in shell rc file
-eval "$(caspbx --shell init)"
-eval "$(caspbx-cli --shell init)"
-eval "$(caspbx-agent --shell init)"
+eval "$({project_name} --shell init)"
+eval "$({project_name}-cli --shell init)"
+eval "$({project_name}-agent --shell init)"
 ```
 
 | Advantage | Description |
@@ -42627,7 +43521,7 @@ eval "$(caspbx-agent --shell init)"
 
 ## Testing Admin Routes
 
-**Admin routes (`/admin/**`) require authentication. Tests MUST verify authentication works.**
+**Admin routes (`/server/{admin_path}/**`) require authentication. Tests MUST verify authentication works.**
 
 **CRITICAL: Do NOT bypass authentication in tests - TEST that it works!**
 
@@ -42642,14 +43536,14 @@ set -euo pipefail
 echo '=== Admin Authentication Tests ==='
 
 # Start server normally (authentication required)
-/app/$CASPBX --port 64580 &
+/app/${PROJECT_NAME} --port 64580 &
 SERVER_PID=$!
 sleep 3
 
 # 1. Test that unauthenticated access is REJECTED
 echo "Testing unauthenticated access is blocked..."
 # Note: Use -q -LSs (no -f) when capturing HTTP status codes, since -f exits on 4xx/5xx
-HTTP_CODE=$(curl -q -LSs -o /dev/null -w "%{http_code}" http://localhost:64580/{admin_path})
+HTTP_CODE=$(curl -q -LSs -o /dev/null -w "%{http_code}" http://localhost:64580/server/{admin_path})
 if [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
     echo "✓ Unauthenticated access properly rejected"
 else
@@ -42659,7 +43553,7 @@ else
 fi
 
 # 2. Get setup token from server logs (using proper temp dir structure)
-SETUP_TOKEN=$(grep -oP 'Setup Token.*:\s*\K[a-f0-9]+' "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX/server.log" | head -1)
+SETUP_TOKEN=$(grep -oP 'Setup Token.*:\s*\K[a-f0-9]+' "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}/server.log" | head -1)
 
 if [ -z "$SETUP_TOKEN" ]; then
     echo "✗ FAILED: No setup token found in logs"
@@ -42673,7 +43567,7 @@ echo "✓ Setup token found: ${SETUP_TOKEN:0:8}..."
 echo "Testing admin access with setup token..."
 HTTP_CODE=$(curl -q -LSs -o /dev/null -w "%{http_code}" \
     -H "X-Setup-Token: $SETUP_TOKEN" \
-    http://localhost:64580/{admin_path})
+    http://localhost:64580/server/{admin_path})
 
 if [ "$HTTP_CODE" = "200" ]; then
     echo "✓ Admin access works with setup token"
@@ -42689,14 +43583,14 @@ curl -q -LSsf -X POST \
     -H "X-Setup-Token: $SETUP_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"username":"testadmin","password":"TestPass123!"}' \
-    http://localhost:64580/api/{api_version}/{admin_path}/setup
+    http://localhost:64580/api/{api_version}/server/{admin_path}/setup
 
 # 5. Test login with created admin
 echo "Testing admin login..."
 SESSION=$(curl -q -LSsf -X POST \
     -H "Content-Type: application/json" \
     -d '{"username":"testadmin","password":"TestPass123!"}' \
-    http://localhost:64580/api/{api_version}/{admin_path}/login | jq -r '.session_token')
+    http://localhost:64580/api/{api_version}/server/{admin_path}/login | jq -r '.session_token')
 
 if [ -z "$SESSION" ] || [ "$SESSION" = "null" ]; then
     echo "✗ FAILED: Admin login failed"
@@ -42709,7 +43603,7 @@ echo "✓ Admin login successful"
 # 6. Test admin routes with valid session
 echo "Testing admin routes with session..."
 curl -q -LSsf -H "Authorization: Bearer $SESSION" \
-    http://localhost:64580/api/{api_version}/{admin_path}/users > /dev/null
+    http://localhost:64580/api/{api_version}/server/{admin_path}/config/users > /dev/null
 
 echo "✓ Admin routes work with authentication"
 
@@ -42720,7 +43614,7 @@ INVALID=$(curl -q -LSs -X POST \
     -H "Content-Type: application/json" \
     -d '{"username":"testadmin","password":"wrongpassword"}' \
     -w "%{http_code}" \
-    http://localhost:64580/api/{api_version}/{admin_path}/login)
+    http://localhost:64580/api/{api_version}/server/{admin_path}/login)
 
 if echo "$INVALID" | grep -q "401\|403"; then
     echo "✓ Invalid credentials properly rejected"
@@ -42803,7 +43697,7 @@ func AdminAuthMiddleware(next http.Handler) http.Handler {
 # Set project path to YOUR actual project location (examples shown below)
 # Use git top-level if in a git repo: PROJECT_PATH="$(git rev-parse --show-toplevel)"
 # Or use absolute path to your project directory
-PROJECT_PATH="/root/Projects/github/apimgr/caspbx"  # Example 1
+PROJECT_PATH="/root/Projects/github/apimgr/{project_name}"  # Example 1
 # PROJECT_PATH="~/Documents/myproject"                     # Example 2
 # PROJECT_PATH="~/myproject"                               # Example 3
 # PROJECT_PATH="/workspace/dev/myproject"                  # Example 4
@@ -42822,7 +43716,7 @@ GO_DOCKER="docker run --rm \
   -e CGO_ENABLED=0"
 
 # Build (outputs to binaries/ which can be mounted into test containers)
-$GO_DOCKER golang:alpine go build -o /build/binaries/caspbx ./src
+$GO_DOCKER golang:alpine go build -o /build/binaries/{project_name} ./src
 
 # Run tests
 $GO_DOCKER golang:alpine go test ./...
@@ -42867,20 +43761,20 @@ docker run --rm \
   -v $GOCACHE:/root/.cache/go-build \
   -v $GODIR:/go \
   -w /build -e CGO_ENABLED=0 \
-  golang:alpine go build -o /build/binaries/caspbx ./src
+  golang:alpine go build -o /build/binaries/{project_name} ./src
 
 # Test in Docker (quick) - install tools first
 docker run --rm -v $(pwd)/binaries:/app alpine:latest sh -c "
   apk add --no-cache curl bash file jq >/dev/null
-  /app/caspbx --help
+  /app/{project_name} --help
 "
 
 # Test in Incus (full OS with systemd) - PREFERRED
 # Use latest Debian stable (currently 13/trixie)
-incus launch images:debian/trixie test-caspbx
-incus file push binaries/caspbx test-caspbx/usr/local/bin/
-incus exec test-caspbx -- caspbx --help
-incus delete test-caspbx --force
+incus launch images:debian/trixie test-{project_name}
+incus file push binaries/{project_name} test-{project_name}/usr/local/bin/
+incus exec test-{project_name} -- {project_name} --help
+incus delete test-{project_name} --force
 ```
 
 ### Testing with Config/Data
@@ -42892,8 +43786,8 @@ GOCACHE="${HOME}/.local/share/go/build"
 mkdir -p "$GODIR" "$GOCACHE"
 
 # Create prefixed temp dir for test data
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
 mkdir -p $TEST_DIR/{config,data,logs}
 
 # Build to binaries/ (with caching)
@@ -42902,20 +43796,20 @@ docker run --rm \
   -v $GOCACHE:/root/.cache/go-build \
   -v $GODIR:/go \
   -w /build -e CGO_ENABLED=0 \
-  golang:alpine go build -o /build/binaries/caspbx ./src
+  golang:alpine go build -o /build/binaries/{project_name} ./src
 
 # Quick test in Docker (install tools first)
 docker run --rm -v $(pwd)/binaries:/app alpine:latest sh -c "
   apk add --no-cache curl bash file jq >/dev/null
-  /app/caspbx --help
-  /app/caspbx --version
+  /app/{project_name} --help
+  /app/{project_name} --version
 "
 
 # Full test with config/data in Docker
 docker run --rm \
   -v $(pwd)/binaries:/app \
   -v $TEST_DIR:/test \
-  alpine:latest /app/caspbx \
+  alpine:latest /app/{project_name} \
     --config /test/config \
     --data /test/data \
     --log /test/logs
@@ -42930,29 +43824,29 @@ rm -rf $TEST_DIR
 
 ```bash
 # Create prefixed temp dir
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
 mkdir -p $TEST_DIR/{config,data,logs}
 
 # Build
 docker run --rm -v $(pwd):/build -w /build -e CGO_ENABLED=0 \
-  golang:alpine go build -o /build/binaries/caspbx ./src
+  golang:alpine go build -o /build/binaries/{project_name} ./src
 
 # Launch Incus container (use latest Debian stable)
-incus launch images:debian/trixie test-caspbx
+incus launch images:debian/trixie test-{project_name}
 
 # Push binary and test data
-incus file push binaries/caspbx test-caspbx/usr/local/bin/
-incus exec test-caspbx -- mkdir -p /etc/casapps/caspbx /var/lib/casapps/caspbx
+incus file push binaries/{project_name} test-{project_name}/usr/local/bin/
+incus exec test-{project_name} -- mkdir -p /etc/{project_org}/{internal_name} /var/lib/{project_org}/{internal_name}
 
 # Test
-incus exec test-caspbx -- caspbx --help
-incus exec test-caspbx -- caspbx --version
-incus exec test-caspbx -- caspbx --service --install
-incus exec test-caspbx -- systemctl status caspbx
+incus exec test-{project_name} -- {project_name} --help
+incus exec test-{project_name} -- {project_name} --version
+incus exec test-{project_name} -- {project_name} --service --install
+incus exec test-{project_name} -- systemctl status {project_name}
 
 # Cleanup
-incus delete test-caspbx --force
+incus delete test-{project_name} --force
 rm -rf $TEST_DIR
 ```
 
@@ -42997,11 +43891,11 @@ rm -rf $TEST_DIR
 
 **Kill Process Flow:**
 ```
-1. pgrep -la caspbx           # List matching processes
+1. pgrep -la {project_name}           # List matching processes
 2. Verify the PID is correct          # CHECK before killing
 3. kill {pid}                         # Graceful termination (SIGTERM)
 4. sleep 5                            # Wait for graceful shutdown
-5. pgrep -la caspbx           # Check if still running
+5. pgrep -la {project_name}           # Check if still running
 6. kill -9 {pid}                      # Force kill ONLY if still running
 ```
 
@@ -43009,23 +43903,23 @@ rm -rf $TEST_DIR
 
 | Rule | Description |
 |------|-------------|
-| **ONLY this project** | Only stop/remove containers named `caspbx` |
+| **ONLY this project** | Only stop/remove containers named `{project_name}` |
 | **NEVER other containers** | Even if they look related or unused |
-| **NEVER images not ours** | Only remove `casapps/caspbx:*` images |
+| **NEVER images not ours** | Only remove `{project_org}/{internal_name}:*` images |
 | **NEVER base images** | Never remove `golang`, `alpine`, `ubuntu`, etc. |
 | **NEVER volumes** | Unless explicitly part of this project |
 
 **Docker Cleanup Flow:**
 ```
-1. docker ps -a --filter name=caspbx     # List ONLY this project's containers
-2. Verify output shows ONLY caspbx       # CHECK before removing
-3. docker stop caspbx                    # Stop gracefully
-4. docker rm caspbx                      # Remove container
+1. docker ps -a --filter name={project_name}     # List ONLY this project's containers
+2. Verify output shows ONLY {project_name}       # CHECK before removing
+3. docker stop {project_name}                    # Stop gracefully
+4. docker rm {project_name}                      # Remove container
 
 # For images:
-1. docker images casapps/caspbx     # List ONLY this project's images
+1. docker images {project_org}/{internal_name}     # List ONLY this project's images
 2. Verify output shows ONLY our images          # CHECK before removing
-3. docker rmi casapps/caspbx:tag    # Remove SPECIFIC tag
+3. docker rmi {project_org}/{internal_name}:tag    # Remove SPECIFIC tag
 ```
 
 ### Allowed Commands (Project-Scoped ONLY)
@@ -43033,10 +43927,10 @@ rm -rf $TEST_DIR
 | Command | Description |
 |---------|-------------|
 | `kill {specific-pid}` | Kill exact PID only (after verification) |
-| `pkill -x caspbx` | Exact binary name match only |
-| `docker stop caspbx` | Stop specific container by name |
-| `docker rm caspbx` | Remove specific container by name |
-| `docker rmi casapps/caspbx:tag` | Remove specific image:tag |
+| `pkill -x {project_name}` | Exact binary name match only |
+| `docker stop {project_name}` | Stop specific container by name |
+| `docker rm {project_name}` | Remove specific container by name |
+| `docker rmi {project_org}/{internal_name}:tag` | Remove specific image:tag |
 | `rm -rf $BUILD_DIR` | Remove temp build dir (from mktemp) |
 | `rm -rf $TEST_DIR` | Remove temp test dir (from mktemp) |
 
@@ -43059,10 +43953,10 @@ rm -rf $TEST_DIR
 | Temp build dir | `rm -rf $BUILD_DIR` (saved from mktemp) |
 | Temp test dir | `rm -rf $TEST_DIR` (saved from mktemp) |
 | All mktemp dirs | Cleaned automatically on reboot |
-| Project binaries | `rm -rf binaries/caspbx*` |
-| Project releases | `rm -rf releases/caspbx*` |
+| Project binaries | `rm -rf binaries/{project_name}*` |
+| Project releases | `rm -rf releases/{project_name}*` |
 
-**Note:** Always use `mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX"` and save the path to a variable for cleanup. Temp dirs are auto-cleaned on reboot.
+**Note:** Always use `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` and save the path to a variable for cleanup. Temp dirs are auto-cleaned on reboot.
 
 ### NEVER Delete Without Confirmation
 
@@ -43112,14 +44006,14 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 
 | Format | URL Pattern | RTD Project Name |
 |--------|-------------|------------------|
-| **Org-Project** | `https://casapps-caspbx.readthedocs.io` | `casapps-caspbx` |
-| **Project Only** | `https://caspbx.readthedocs.io` | `caspbx` |
+| **Org-Project** | `https://{project_org}-{project_name}.readthedocs.io` | `{project_org}-{project_name}` |
+| **Project Only** | `https://{project_name}.readthedocs.io` | `{project_name}` |
 | **Custom Domain** | `https://{custom_rtd_address}` | Configured in RTD settings |
 
 **How to determine which format:**
 1. Check your ReadTheDocs project dashboard for the actual URL
-2. Organization accounts typically use `casapps-caspbx`
-3. Standalone projects may use just `caspbx`
+2. Organization accounts typically use `{project_org}-{project_name}`
+3. Standalone projects may use just `{project_name}`
 4. Custom domains require RTD paid plan or manual DNS setup
 
 ## Required Files
@@ -43133,6 +44027,13 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 
 ### Documentation Directory (`docs/`)
 
+**`docs/` is the operator/user/integrator documentation set. It MUST explain the shipped product as it actually behaves now.**
+
+- `docs/` MUST cover the browser surface, admin surface, API surface, configuration surface, and any enabled public protocol/integration surface
+- If the project exposes public discovery or standards endpoints (for example `/.well-known/**`, Swagger/GraphQL docs, autodiscover, OAuth/OIDC provider metadata, native app association files, or security-reporting endpoints), the relevant docs pages MUST explain them
+- If a feature exists in code and affects operators, admins, integrators, or end users, it MUST be reflected in `docs/`
+- `docs/` is prose/reference documentation; generated OpenAPI/GraphQL output does NOT replace the required docs pages
+
 | File | Required | Purpose |
 |------|:--------:|---------|
 | `index.md` | ✓ | Documentation homepage |
@@ -43141,6 +44042,8 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 | `api.md` | ✓ | API documentation (endpoints, formats) |
 | `cli.md` | If applicable | CLI reference (flags, commands) |
 | `admin.md` | ✓ | Admin panel guide |
+| `security.md` | ✓ | Security model, auth, health/public endpoints, security reporting, and well-known namespace |
+| `integrations.md` | ✓ | External identity, native app links, autodiscovery, webhooks, federation, and other protocol/platform integrations (or an explicit "none enabled" statement) |
 | `development.md` | ✓ | Development/contributing guide |
 | `stylesheets/dark.css` | Optional | Dark theme customization |
 | `stylesheets/light.css` | Optional | Light theme customization |
@@ -43149,16 +44052,16 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 ## mkdocs.yml Template
 
 ```yaml
-site_name: CASPBX
+site_name: {PROJECT_NAME}
 # site_url: Use whichever RTD URL format matches your project:
-#   https://casapps-caspbx.readthedocs.io  (org-project)
-#   https://caspbx.readthedocs.io               (project only)
+#   https://{project_org}-{project_name}.readthedocs.io  (org-project)
+#   https://{project_name}.readthedocs.io               (project only)
 #   https://{custom_rtd_address}                       (custom domain)
 site_url: https://{RTD_URL}
 site_description: "{Project description}"
-site_author: casapps
+site_author: {project_org}
 
-repo_name: casapps/caspbx
+repo_name: {project_org}/{internal_name}
 repo_url: {PLATFORM_REPO_URL}
 edit_uri: edit/main/docs/  # Adjust path format for GitLab/Gitea if needed
 
@@ -43237,8 +44140,8 @@ markdown_extensions:
   - pymdownx.keys
   - pymdownx.magiclink:
       repo_url_shorthand: true
-      user: casapps
-      repo: caspbx
+      user: {project_org}
+      repo: {project_name}
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.superfences:
@@ -43259,8 +44162,10 @@ nav:
     - Configuration: configuration.md
   - Usage:
     - API Reference: api.md
-    - CLI Reference: cli.md
+    - CLI Reference: cli.md         # Remove if project has no CLI surface
     - Admin Panel: admin.md
+    - Security: security.md
+    - Integrations: integrations.md
   - Development:
     - Contributing: development.md
 
@@ -43583,7 +44488,7 @@ pymdown-extensions>=10.0
 ### docs/index.md
 
 ```markdown
-# CASPBX
+# {PROJECT_NAME}
 
 {Brief project description}
 
@@ -43591,10 +44496,10 @@ pymdown-extensions>=10.0
 
 ```bash
 # Docker
-docker run -p 64580:80 {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+docker run -p 64580:80 {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
 
 # Binary
-./caspbx-linux-amd64 --config server.yml
+./{project_name}-linux-amd64 --config server.yml
 ```
 
 ## Features
@@ -43609,12 +44514,14 @@ docker run -p 64580:80 {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
 - [Configuration](configuration.md) - All configuration options
 - [API Reference](api.md) - REST API, Swagger, GraphQL
 - [Admin Panel](admin.md) - WebUI administration
+- [Security](security.md) - Auth, public endpoints, reporting, and hardening behavior
+- [Integrations](integrations.md) - External identity, discovery, and platform integrations
 - [Development](development.md) - Contributing guide
 
 ## Links
 
 - [Repository]({PLATFORM_REPO_URL})
-- [Live Demo](https://caspbx.casapps.us) (if applicable)
+- [Live Demo](https://{project_name}.{project_org}.us) (if applicable)
 - [API Documentation](/server/docs/swagger) (Swagger UI)
 - [GraphQL Playground](/server/docs/graphql)
 
@@ -43632,10 +44539,10 @@ MIT - See [LICENSE.md]({PLATFORM_REPO_URL}/blob/main/LICENSE.md)
 
 ```bash
 docker run -d \
-  --name caspbx \
+  --name {project_name} \
   -p 64580:80 \
-  -v caspbx-data:/data \
-  {PLATFORM_CONTAINER_REGISTRY}/casapps/caspbx:latest
+  -v {project_name}-data:/data \
+  {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
 ```
 
 ## Binary
@@ -43644,17 +44551,17 @@ Download from [releases]({PLATFORM_REPO_URL}/releases):
 
 ```bash
 # Linux AMD64
-wget {PLATFORM_RELEASE_URL}/caspbx-linux-amd64
-chmod +x caspbx-linux-amd64
-./caspbx-linux-amd64
+wget {PLATFORM_RELEASE_URL}/{project_name}-linux-amd64
+chmod +x {project_name}-linux-amd64
+./{project_name}-linux-amd64
 ```
 
 ## Systemd Service
 
 ```bash
-sudo ./caspbx --service install
-sudo systemctl start caspbx
-sudo systemctl enable caspbx
+sudo ./{project_name} --service install
+sudo systemctl start {project_name}
+sudo systemctl enable {project_name}
 ```
 
 ## Configuration
@@ -43690,13 +44597,18 @@ database:
 All settings can be overridden via environment:
 
 ```bash
-CASPBX_SERVER_PORT=8080
-CASPBX_DATABASE_TYPE=postgres
+{PROJECT_NAME}_SERVER_PORT=8080
+{PROJECT_NAME}_DATABASE_TYPE=postgres
 ```
 
 ## Admin Panel
 
-All settings are configurable via the WebUI at `/admin`.
+All settings are configurable via the WebUI at `/server/{admin_path}`.
+
+Document:
+- external auth provider settings (OIDC/LDAP) if enabled
+- well-known namespace settings and optional entries if enabled
+- health/public endpoint toggles that operators can change
 ```
 
 ### docs/api.md
@@ -43708,11 +44620,16 @@ All settings are configurable via the WebUI at `/admin`.
 
 Base URL: `/api/{api_version}/`
 
+Document:
+- canonical versioned routes
+- direct aliases such as `/api/swagger`, `/api/graphql`, and `/api/healthz`
+- public docs routes under `/server/docs/*`
+
 ### Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/healthz` | GET | Health check |
+| `/api/{api_version}/server/healthz` | GET | Health check |
 | `/api/{api_version}/{resource}` | GET | List resources |
 
 ## Swagger UI
@@ -43737,7 +44654,7 @@ GraphQL playground: [/server/docs/graphql](/server/docs/graphql)
 
 ## Access
 
-- URL: `/admin`
+- URL: `/server/{admin_path}`
 - First-run setup wizard creates admin account
 - Session-based authentication
 
@@ -43750,9 +44667,77 @@ GraphQL playground: [/server/docs/graphql](/server/docs/graphql)
 - SSL/TLS management
 - Monitoring & logs
 
+Document:
+- `/server/{admin_path}/config/security/auth/*` for OIDC/LDAP provider management
+- `/server/{admin_path}/config/web/*` for robots/security/well-known management
+- any security-reporting or public-endpoint admin pages enabled by the project
+
 ## Admin API
 
-Programmatic access via `/api/{api_version}/{admin_path}/` with bearer token authentication.
+Programmatic access via `/api/{api_version}/server/{admin_path}/` with bearer token authentication.
+```
+
+### docs/security.md
+
+```markdown
+# Security
+
+## Authentication & Identity
+
+- Local auth routes live under `/server/auth/*`
+- External identity for users/admins is documented here:
+  - OIDC providers
+  - LDAP providers
+  - first-login username confirmation flow
+
+## Public Security Endpoints
+
+- `/.well-known/security.txt`
+- `/.well-known/pgp-key.asc` (when enabled)
+- `/.well-known/change-password`
+- `/server/healthz`
+- `/api/{api_version}/server/healthz`
+
+## Security Reporting
+
+- Explain how researchers use `/.well-known/security.txt`
+- Explain `/server/contact?security_id=...`
+- Link to `/server/security/policy`
+
+## Well-Known Namespace
+
+- Document which `/.well-known/*` entries are enabled for this project
+- State that unknown entries return `404`
+- Document feature-gated entries such as WebFinger, OpenID Provider Metadata, App Links, Apple association, and MTA-STS only when they are actually enabled
+```
+
+### docs/integrations.md
+
+```markdown
+# Integrations
+
+## External Identity
+
+- OIDC providers, scopes, and claim mapping
+- LDAP providers, attribute mapping, and group mapping
+- Which flows apply to users, admins, or both
+
+## Discovery & Protocol Endpoints
+
+- Public docs endpoints (`/server/docs/swagger`, `/server/docs/graphql`)
+- API aliases (`/api/swagger`, `/api/graphql`, `/api/healthz`)
+- Any enabled `/.well-known/*` discovery/integration endpoints
+
+## Platform Integrations
+
+- Android App Links (`/.well-known/assetlinks.json`) if enabled
+- Apple Universal Links / WebCredentials (`/.well-known/apple-app-site-association`) if enabled
+- Autodiscovery, federation, webhooks, or client/agent bootstrap endpoints if the project supports them
+
+## Operator Notes
+
+- Which integrations are optional vs required
+- What must be configured before enabling each integration
 ```
 
 ### docs/development.md
@@ -43762,7 +44747,7 @@ Programmatic access via `/api/{api_version}/{admin_path}/` with bearer token aut
 
 ## Prerequisites
 
-- Go 1.21+
+- Go (latest stable only; never pin a specific version)
 - Make
 - Docker (optional)
 
@@ -43770,14 +44755,14 @@ Programmatic access via `/api/{api_version}/{admin_path}/` with bearer token aut
 
 ```bash
 git clone {PLATFORM_REPO_URL}
-cd caspbx
+cd {project_name}
 make build
 ```
 
 ## Run Locally
 
 ```bash
-./binaries/caspbx --config server.yml --debug
+./binaries/{project_name} --config server.yml --debug
 ```
 
 ## Testing
@@ -44971,7 +45956,7 @@ var localeFS embed.FS
   },
 
   "cli": {
-    "description": "caspbx {projectversion} - {project_description}",
+    "description": "{project_name} {projectversion} - {project_description}",
     "usage": "Uso:",
     "information": "Información:",
     "shell_integration": "Integración de shell:",
@@ -44985,8 +45970,8 @@ var localeFS embed.FS
     "app_mode": "Modo de aplicación",
     "config_dir": "Directorio de configuración",
     "data_dir": "Directorio de datos",
-    "run_help": "Ejecute 'caspbx <command> --help' para ayuda detallada sobre cualquier comando.",
-    "running_pid": "caspbx está en ejecución (PID {pid})",
+    "run_help": "Ejecute '{project_name} <command> --help' para ayuda detallada sobre cualquier comando.",
+    "running_pid": "{project_name} está en ejecución (PID {pid})",
     "daemon_started": "Demonio iniciado con PID {pid}",
     "already_running": "Ya en ejecución (pid {pid})",
     "running_in_mode": "Ejecutando en modo: {app_mode}",
@@ -45013,7 +45998,7 @@ var localeFS embed.FS
   },
 
   "agent": {
-    "description": "caspbx-agent {projectversion} - Agente para caspbx",
+    "description": "{project_name}-agent {projectversion} - Agente para {project_name}",
     "usage": "Uso:",
     "commands": "Comandos:",
     "flags": "Opciones:",
@@ -45055,7 +46040,7 @@ var localeFS embed.FS
   },
 
   "version": {
-    "name_version": "caspbx {projectversion}",
+    "name_version": "{project_name} {projectversion}",
     "built": "Compilado: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "SO/Arq: {goos}/{goarch}"
@@ -45375,29 +46360,29 @@ func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request,
 
 ```bash
 # CLI output in Spanish
-caspbx-cli --lang es --help
+{project_name}-cli --lang es --help
 # Uso:
-#   caspbx-cli [comando] [opciones]
+#   {project_name}-cli [comando] [opciones]
 # ...
 
 # Agent output in Spanish
-caspbx-agent --lang es --server https://example.com --token adm_xxx
+{project_name}-agent --lang es --server https://example.com --token adm_xxx
 
 # Server banner in Spanish
-LANG=es_ES.UTF-8 caspbx
+LANG=es_ES.UTF-8 {project_name}
 # or
-caspbx --lang es
+{project_name} --lang es
 
 # CLI output via LANG env (default)
-LANG=es_ES.UTF-8 caspbx-cli --help
+LANG=es_ES.UTF-8 {project_name}-cli --help
 # Uso:
-#   caspbx-cli [comando] [opciones]
+#   {project_name}-cli [comando] [opciones]
 # ...
 
 # English (default when nothing set)
-caspbx-cli --help
+{project_name}-cli --help
 # Usage:
-#   caspbx-cli [command] [options]
+#   {project_name}-cli [command] [options]
 # ...
 ```
 
@@ -46153,13 +47138,13 @@ This prevents conflicts with any existing Tor installation on the system.
 
 | Server Started As | Server Runs As | Tor Runs As |
 |-------------------|----------------|-------------|
-| `root` | `caspbx` (after drop) | `caspbx` |
-| `caspbx` | `caspbx` | `caspbx` |
+| `root` | `{project_name}` (after drop) | `{project_name}` |
+| `{project_name}` | `{project_name}` | `{project_name}` |
 | Regular user | Regular user | Regular user |
 
 **Process:**
 1. Server starts (possibly as root for port binding)
-2. Server drops privileges to `caspbx` user (if started as root)
+2. Server drops privileges to `{project_name}` user (if started as root)
 3. Server starts Tor process **as the current (dropped) user**
 4. Tor inherits user context from server process
 
@@ -46931,11 +47916,11 @@ No impact on binary size - Tor is external. Application binary remains small and
 
 | Environment | {config_dir} | {data_dir} | {log_dir} |
 |-------------|--------------|------------|-----------|
-| Docker | `/config/caspbx/` | `/data/caspbx/` | `/data/log/caspbx/` |
-| Linux root | `/etc/casapps/caspbx/` | `/var/lib/casapps/caspbx/` | `/var/log/casapps/caspbx/` |
-| Linux user | `~/.config/casapps/caspbx/` | `~/.local/share/casapps/caspbx/` | `~/.local/log/casapps/caspbx/` |
-| macOS | `~/Library/Application Support/casapps/caspbx/` | Same as config | `~/Library/Logs/casapps/caspbx/` |
-| Windows | `%AppData%\casapps\caspbx\` | Same as config | `%AppData%\casapps\caspbx\log\` |
+| Docker | `/config/{project_name}/` | `/data/{project_name}/` | `/data/log/{project_name}/` |
+| Linux root | `/etc/{project_org}/{internal_name}/` | `/var/lib/{project_org}/{internal_name}/` | `/var/log/{project_org}/{internal_name}/` |
+| Linux user | `~/.config/{project_org}/{internal_name}/` | `~/.local/share/{project_org}/{internal_name}/` | `~/.local/log/{project_org}/{internal_name}/` |
+| macOS | `~/Library/Application Support/{project_org}/{internal_name}/` | Same as config | `~/Library/Logs/{project_org}/{internal_name}/` |
+| Windows | `%AppData%\{project_org}\{internal_name}\` | Same as config | `%AppData%\{project_org}\{internal_name}\log\` |
 
 **Tor directories are ALWAYS `{config_dir}/tor/`, `{data_dir}/tor/`, `{log_dir}/tor.log` - never hardcoded paths.**
 
@@ -47101,7 +48086,7 @@ func ensureTorFile(path string, content []byte) error {
 
 ## Admin Panel
 
-### /{admin_path}/server/tor (WebUI)
+### /server/{admin_path}/config/tor (WebUI)
 
 **Hidden service is ALWAYS enabled if Tor binary is found.** No enable/disable toggle.
 
@@ -47393,20 +48378,20 @@ make
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/tor` | GET | Get Tor status, config, and .onion address |
-| `/api/{api_version}/{admin_path}/server/tor` | PATCH | Update Tor settings (validates before saving) |
-| `/api/{api_version}/{admin_path}/server/tor/validate` | POST | Validate config without saving |
-| `/api/{api_version}/{admin_path}/server/tor/regenerate` | POST | Regenerate .onion address |
-| `/api/{api_version}/{admin_path}/server/tor/restart` | POST | Restart Tor process |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | GET | Get vanity generation status |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | POST | Start vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | DELETE | Cancel vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity/apply` | POST | Apply vanity address |
-| `/api/{api_version}/{admin_path}/server/tor/import` | POST | Import external keys |
+| `/api/{api_version}/server/{admin_path}/config/tor` | GET | Get Tor status, config, and .onion address |
+| `/api/{api_version}/server/{admin_path}/config/tor` | PATCH | Update Tor settings (validates before saving) |
+| `/api/{api_version}/server/{admin_path}/config/tor/validate` | POST | Validate config without saving |
+| `/api/{api_version}/server/{admin_path}/config/tor/regenerate` | POST | Regenerate .onion address |
+| `/api/{api_version}/server/{admin_path}/config/tor/restart` | POST | Restart Tor process |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | GET | Get vanity generation status |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | POST | Start vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | DELETE | Cancel vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity/apply` | POST | Apply vanity address |
+| `/api/{api_version}/server/{admin_path}/config/tor/import` | POST | Import external keys |
 
 ### Response Format
 
-**GET `/api/{api_version}/{admin_path}/server/tor`**
+**GET `/api/{api_version}/server/{admin_path}/config/tor`**
 
 ```json
 {
@@ -47435,7 +48420,7 @@ make
 }
 ```
 
-**POST `/api/{api_version}/{admin_path}/server/tor/validate`** (or PATCH with invalid config)
+**POST `/api/{api_version}/server/{admin_path}/config/tor/validate`** (or PATCH with invalid config)
 
 ```json
 {
@@ -47453,7 +48438,7 @@ make
 }
 ```
 
-**PATCH `/api/{api_version}/{admin_path}/server/tor`** (success)
+**PATCH `/api/{api_version}/server/{admin_path}/config/tor`** (success)
 
 ```json
 {
@@ -47551,11 +48536,11 @@ When a project includes a client, it provides a terminal-based interface for int
 
 | Attribute | Value |
 |-----------|-------|
-| Default binary name | `caspbx-cli` |
+| Default binary name | `{project_name}-cli` |
 | Versioning | Same as main application |
 | Build | Part of same Makefile (`make build` produces both binaries) |
-| Config location (Unix) | `~/.config/casapps/caspbx/cli.yml` |
-| Config location (Windows) | `%APPDATA%\casapps\caspbx\cli.yml` |
+| Config location (Unix) | `~/.config/{project_org}/{internal_name}/cli.yml` |
+| Config location (Windows) | `%APPDATA%\{project_org}\{internal_name}\cli.yml` |
 
 ## Binary Naming Rules
 
@@ -47563,18 +48548,18 @@ When a project includes a client, it provides a terminal-based interface for int
 
 | Rule | Display | Internal |
 |------|---------|----------|
-| Binary name | ACTUAL name (`filepath.Base(os.Args[0])`) | Hardcoded `caspbx` |
+| Binary name | ACTUAL name (`filepath.Base(os.Args[0])`) | Hardcoded `{project_name}` |
 | `--help` output | Shows actual binary name | - |
 | `--version` output | Shows actual binary name | - |
-| User-Agent | - | `caspbx-cli/{version}` (hardcoded) |
-| Config paths | - | `/etc/casapps/caspbx/` (hardcoded) |
+| User-Agent | - | `{project_name}-cli/{version}` (hardcoded) |
+| Config paths | - | User-scope CLI paths under the invoking user's home/profile (see CLI directory rules below) |
 
 ```go
 // Display: use actual binary name
 binaryName := filepath.Base(os.Args[0])
 
 // Internal: hardcoded project name (compiled via -ldflags)
-const projectName = "caspbx"
+const projectName = "{project_name}"
 userAgent := fmt.Sprintf("%s-cli/%s", projectName, version)
 ```
 
@@ -47590,9 +48575,9 @@ userAgent := fmt.Sprintf("%s-cli/%s", projectName, version)
 **Token sources (priority order):**
 1. `--token` flag (explicit)
 2. `--token-file` flag (file path)
-3. Environment variable: `CASPBX_TOKEN`
+3. Environment variable: `{PROJECT_NAME}_TOKEN`
 4. Config file: `cli.yml` → `token: xxx`
-5. Token file: `{config_dir}/token` (Unix: `~/.config/casapps/caspbx/token`, Windows: `%APPDATA%\casapps\caspbx\token`)
+5. Token file: `{config_dir}/token` (Unix: `~/.config/{project_org}/{internal_name}/token`, Windows: `%APPDATA%\{project_org}\{internal_name}\token`)
 
 **Token format:** See PART 11 "API Token Security" for token format and validation.
 
@@ -47626,14 +48611,14 @@ func getToken(flags *Flags) (string, error) {
 **Usage:**
 ```bash
 # Explicit token
-caspbx-cli --token "usr_abc123..." list
+{project_name}-cli --token "usr_abc123..." list
 
 # From environment
-export CASPBX_TOKEN="usr_abc123..."
-caspbx-cli list
+export {PROJECT_NAME}_TOKEN="usr_abc123..."
+{project_name}-cli list
 
 # Store token (interactive login)
-caspbx-cli login
+{project_name}-cli login
 # Saves to {config_dir}/token (see platform-specific paths above)
 ```
 
@@ -47643,10 +48628,10 @@ caspbx-cli login
 
 | Path | Required perms | Behavior on mismatch |
 |------|----------------|----------------------|
-| `~/.config/casapps/caspbx/cli.yml` (Unix) | `0600` (`-rw-------`) | If world or group readable → log a warning to stderr and refuse to use the token; user must `chmod 0600` and retry |
-| `~/.config/casapps/caspbx/token` (Unix) | `0600` | Same |
-| `%APPDATA%\casapps\caspbx\cli.yml` (Windows) | ACL: only the running user (no `Everyone`, no `Users`) | Same warning + refusal |
-| `%APPDATA%\casapps\caspbx\token` (Windows) | Same | Same |
+| `~/.config/{project_org}/{internal_name}/cli.yml` (Unix) | `0600` (`-rw-------`) | If world or group readable → log a warning to stderr and refuse to use the token; user must `chmod 0600` and retry |
+| `~/.config/{project_org}/{internal_name}/token` (Unix) | `0600` | Same |
+| `%APPDATA%\{project_org}\{internal_name}\cli.yml` (Windows) | ACL: only the running user (no `Everyone`, no `Users`) | Same warning + refusal |
+| `%APPDATA%\{project_org}\{internal_name}\token` (Windows) | Same | Same |
 
 **The CLI's `login` command writes new files with the correct perms via `os.WriteFile(..., 0600)` then `os.Chmod(..., 0600)` (defense in depth — Windows ignores the mode bit, ACL inheritance handles it). The check on read uses `os.Stat()` and bails if `info.Mode().Perm() & 0o077 != 0`.**
 
@@ -47656,9 +48641,9 @@ caspbx-cli login
 
 | Scenario | CLI behavior |
 |----------|--------------|
-| Interactive (TUI) session | Show a modal: "Your session has been revoked. Please log in again." Block until user picks "Re-login" (drops to inline `caspbx-cli login` prompt) or "Quit". Don't kill in-flight UI state — preserve any unsaved drafts in `{config_dir}/draft/`. |
-| Non-interactive (single-shot command, scripted use) | Print to stderr: `error: your API token has been revoked. Run 'caspbx-cli login' to re-authenticate.` Exit with a non-zero code (PART 8 has an exit-code table for `--status` only — for general CLI use, simply exit non-zero so shell pipelines see the failure). |
-| Background watch / streaming (e.g., `caspbx-cli watch`) | Stop the stream, print the same stderr message, exit with code `4`. Do NOT auto-retry — re-auth must be a deliberate user action to prevent prompt-loops on credentials. |
+| Interactive (TUI) session | Show a modal: "Your session has been revoked. Please log in again." Block until user picks "Re-login" (drops to inline `{project_name}-cli login` prompt) or "Quit". Don't kill in-flight UI state — preserve any unsaved drafts in `{config_dir}/draft/`. |
+| Non-interactive (single-shot command, scripted use) | Print to stderr: `error: your API token has been revoked. Run '{project_name}-cli login' to re-authenticate.` Exit with a non-zero code (PART 8 has an exit-code table for `--status` only — for general CLI use, simply exit non-zero so shell pipelines see the failure). |
+| Background watch / streaming (e.g., `{project_name}-cli watch`) | Stop the stream, print the same stderr message, exit with code `4`. Do NOT auto-retry — re-auth must be a deliberate user action to prevent prompt-loops on credentials. |
 
 **On `401 TOKEN_REVOKED`:** the CLI MUST also delete the cached token from `cli.yml` / `token` so the next invocation prompts for fresh credentials instead of replaying the dead token. Same behavior on `401 TOKEN_EXPIRED`.
 
@@ -47674,7 +48659,7 @@ caspbx-cli login
 | 2. Periodic refresh | Every 30 minutes (or on every CLI start, whichever comes first), CLI re-runs autodiscover against `server.primary` and refreshes the cluster list. |
 | 3. Failover | On any request to `server.primary` that fails with a connection-level error (DNS failure, TCP timeout, TLS handshake failure, 5xx after retry) — NOT auth or 4xx errors — the CLI tries each `server.cluster` URL in order with a fresh request. First success becomes the new "preferred" URL for the rest of the session. |
 | 4. Promotion | If the primary stays down for >5 minutes (CLI session-local timer) AND a cluster URL is consistently working, CLI updates `cli.yml` to make the working URL the new `server.primary`. The old primary stays in `cluster:` so it's tried again later. |
-| 5. Total failure | If ALL cluster URLs fail, print: `error: cannot reach caspbx server at any of {N} configured URLs (last error: ...)`. Exit non-zero. Do not auto-retry beyond the cluster list — operator handles via DNS / connectivity tools. |
+| 5. Total failure | If ALL cluster URLs fail, print: `error: cannot reach {project_name} server at any of {N} configured URLs (last error: ...)`. Exit non-zero. Do not auto-retry beyond the cluster list — operator handles via DNS / connectivity tools. |
 
 The CLI never adds URLs that weren't in the autodiscover response — operators control which cluster nodes are exposed.
 
@@ -47684,9 +48669,9 @@ The CLI never adds URLs that weren't in the autodiscover response — operators 
 
 | Step | Action |
 |------|--------|
-| 1. Discover | CLI's `/api/autodiscover` response includes `cli_versions: { "linux-amd64": {"version": "1.2.3", "sha256": "..."}, ... }` and `cli_min_version`. CLI checks on every start (it's short-lived; no separate poll loop needed) and additionally on `caspbx-cli --update check`. |
-| 2. Decide | If `current_version < cli_versions[os-arch].version`: prompt the user (interactive) OR auto-update silently (when `update.auto: true` AND non-interactive AND `--update yes` was passed earlier). If `current_version < cli_min_version`: refuse to make further requests until updated; print "this CLI is too old; the server requires {min_version} — run 'caspbx-cli --update yes' to upgrade." |
-| 3. Download | Fetch `{base}/cli/binaries/caspbx-cli-{os}-{arch}` over HTTPS (with bearer token if logged in; without if `--update` is run pre-login). Save to a tmp path (`/tmp/casapps/caspbx-XXXXXX/cli.update.tmp` per the spec's tmp-dir rules). |
+| 1. Discover | CLI's `/api/autodiscover` response includes `cli_versions: { "linux-amd64": {"version": "1.2.3", "sha256": "..."}, ... }` and `cli_min_version`. CLI checks on every start (it's short-lived; no separate poll loop needed) and additionally on `{project_name}-cli --update check`. |
+| 2. Decide | If `current_version < cli_versions[os-arch].version`: prompt the user (interactive) OR auto-update silently (when `update.auto: true` AND non-interactive AND `--update yes` was passed earlier). If `current_version < cli_min_version`: refuse to make further requests until updated; print "this CLI is too old; the server requires {min_version} — run '{project_name}-cli --update yes' to upgrade." |
+| 3. Download | Fetch `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` over HTTPS (with bearer token if logged in; without if `--update` is run pre-login). Save to a tmp path (`/tmp/{project_org}/{project_name}-XXXXXX/cli.update.tmp` per the spec's tmp-dir rules). |
 | 4. Verify SHA-256 | Same `verifyChecksum()` from PART 23 — match against the `sha256` from autodiscover. Mismatch → delete temp, abort with stderr error. |
 | 5. Atomic swap | Same platform-specific `replaceBinary()` from PART 23. The CLI is user-installed (typically `/usr/local/bin/` or `~/bin/`) — if the user lacks write permission to the install path, CLI prints "you do not have permission to update {binary_path}; ask your admin or move the binary to a writable path" and exits cleanly. |
 | 6. Re-exec | After successful replace, CLI `exec`s the new binary with the original argv to continue the in-progress command. (Server / agent restart via service manager; CLI just re-execs since it's foreground.) |
@@ -47705,7 +48690,7 @@ update:
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
 | `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` alongside agent and server info |
-| `{base}/cli/binaries/caspbx-cli-{os}-{arch}` | GET | None (public — CLIs are user-distributed) OR bearer if `cli.binary_download.require_auth: true` is set | Streams the binary |
+| `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` | GET | None (public — CLIs are user-distributed) OR bearer if `cli.binary_download.require_auth: true` is set | Streams the binary |
 
 **Why CLI download default is unauthenticated:** the CLI is the entry point for new users. Forcing auth on the download means they need a token before they can install the tool that obtains the token. Operators who run a private deployment can flip `cli.binary_download.require_auth` to `true`.
 
@@ -47821,17 +48806,17 @@ func ValidateAccess(ctx context.Context, token *Token, target string, action str
 
 ```bash
 # Default: use token owner's personal context (no --user flag)
-caspbx-cli list                    # GET /api/{api_version}/users/{resource} (current user)
+{project_name}-cli list                    # GET /api/{api_version}/users/{resource} (current user)
 
 # Explicit user context (view another user's public resources)
-caspbx-cli --user @alice list      # GET /api/{api_version}/users/alice/{resource}
+{project_name}-cli --user @alice list      # GET /api/{api_version}/users/alice/{resource}
 
 # Org context (user must have org access)
-caspbx-cli --user +acme-corp list  # GET /api/{api_version}/orgs/acme-corp/{resource}
+{project_name}-cli --user +acme-corp list  # GET /api/{api_version}/orgs/acme-corp/{resource}
 
 # Auto-detect: CLI determines if name is user or org
-caspbx-cli --user alice list       # GET /api/{api_version}/users/alice/{resource} (if user)
-caspbx-cli --user acme-corp list   # GET /api/{api_version}/orgs/acme-corp/{resource} (if org)
+{project_name}-cli --user alice list       # GET /api/{api_version}/users/alice/{resource} (if user)
+{project_name}-cli --user acme-corp list   # GET /api/{api_version}/orgs/acme-corp/{resource} (if org)
 ```
 
 **Note:** `{resource}` is the project-specific resource type (e.g., `repos`, `pastes`, `links`). See IDEA.md for your project's resources.
@@ -47849,7 +48834,7 @@ caspbx-cli --user acme-corp list   # GET /api/{api_version}/orgs/acme-corp/{reso
 
 ```bash
 # CLI translates --user to URL-scoped route
-caspbx-cli --user acme-corp list
+{project_name}-cli --user acme-corp list
 
 # Becomes:
 GET /api/{api_version}/orgs/acme-corp/{resource}
@@ -47894,23 +48879,23 @@ CLI receives --user flag
 
 ```bash
 # Token: alice (no org access)
-caspbx-cli list                    # Uses alice's context (only option)
-caspbx-cli --user alice list       # Same (redundant but valid)
-caspbx-cli --user acme-corp list   # ERROR: no access to acme-corp
+{project_name}-cli list                    # Uses alice's context (only option)
+{project_name}-cli --user alice list       # Same (redundant but valid)
+{project_name}-cli --user acme-corp list   # ERROR: no access to acme-corp
 
 # Token: scoped to acme-corp only (org-specific token)
-caspbx-cli list                    # Uses acme-corp context (only option)
-caspbx-cli --user acme-corp list   # Same (redundant but valid)
-caspbx-cli --user @me list         # ERROR: token not scoped to user
+{project_name}-cli list                    # Uses acme-corp context (only option)
+{project_name}-cli --user acme-corp list   # Same (redundant but valid)
+{project_name}-cli --user @me list         # ERROR: token not scoped to user
 
 # Token: alice + acme-corp (user has one org)
-caspbx-cli list                    # Uses alice's context (default = user)
-caspbx-cli --user acme-corp list   # Uses acme-corp context
+{project_name}-cli list                    # Uses alice's context (default = user)
+{project_name}-cli --user acme-corp list   # Uses acme-corp context
 
 # Token: alice + acme-corp + dev-team (user has multiple orgs)
-caspbx-cli list                    # Uses alice's context (default = user)
-caspbx-cli --user acme-corp list   # Uses acme-corp context
-caspbx-cli --user dev-team list    # Uses dev-team context
+{project_name}-cli list                    # Uses alice's context (default = user)
+{project_name}-cli --user acme-corp list   # Uses acme-corp context
+{project_name}-cli --user dev-team list    # Uses dev-team context
 ```
 
 **Server-side scope detection:**
@@ -47994,11 +48979,11 @@ func SaveIfEmptyOrInvalid(current, flagValue string, validate func(string) bool)
 **Example:**
 ```bash
 # First run: no server configured
-caspbx-cli --server https://api.example.com list
+{project_name}-cli --server https://api.example.com list
 # → Saves to cli.yml (was empty)
 
 # Second run: server already configured
-caspbx-cli --server https://staging.example.com list
+{project_name}-cli --server https://staging.example.com list
 # → Uses staging for THIS command, but cli.yml still has api.example.com
 
 # To permanently change: edit cli.yml directly
@@ -48020,7 +49005,7 @@ caspbx-cli --server https://staging.example.com list
 
 ```bash
 # @me always means token owner
-caspbx-cli --user @me list    # Always personal context
+{project_name}-cli --user @me list    # Always personal context
 ```
 
 ## Modes
@@ -48076,25 +49061,25 @@ display:
 
 **Exit-immediately flags (NEVER launch TUI):**
 ```bash
-caspbx-cli -h                    # Print help, exit
-caspbx-cli --help                # Print help, exit
-caspbx-cli -v                    # Print version, exit
-caspbx-cli --version             # Print version, exit
+{project_name}-cli -h                    # Print help, exit
+{project_name}-cli --help                # Print help, exit
+{project_name}-cli -v                    # Print version, exit
+{project_name}-cli --version             # Print version, exit
 ```
 
 **Config flags (still launch TUI):**
 ```bash
-caspbx-cli                                    # TUI mode
-caspbx-cli --config dev                       # TUI mode (with dev.yml)
-caspbx-cli --server https://example.com       # TUI mode (with server)
-caspbx-cli --token abc123                     # TUI mode (with token)
+{project_name}-cli                                    # TUI mode
+{project_name}-cli --config dev                       # TUI mode (with dev.yml)
+{project_name}-cli --server https://example.com       # TUI mode (with server)
+{project_name}-cli --token abc123                     # TUI mode (with token)
 ```
 
 **Command/args (CLI mode):**
 ```bash
-caspbx-cli list                               # CLI mode
-caspbx-cli golang tutorials                   # CLI mode (search)
-caspbx-cli notes.txt                          # CLI mode (paste file)
+{project_name}-cli list                               # CLI mode
+{project_name}-cli golang tutorials                   # CLI mode (search)
+{project_name}-cli notes.txt                          # CLI mode (paste file)
 ```
 
 ```go
@@ -48178,7 +49163,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 
 | Binary | First Run | Configuration Method |
 |--------|-----------|---------------------|
-| **Server** | Start with defaults, show status banner | WebUI at `/{admin_path}` |
+| **Server** | Start with defaults, show status banner | WebUI at `/server/{admin_path}` |
 | **CLI** | Setup wizard (GUI/TUI) | Setup wizard (no WebUI for CLI) |
 | **Agent** | Start with connection string, show status banner | Server provides connection string |
 
@@ -48195,18 +49180,18 @@ if env.IsAutoDetectDisplayModeGUI() {
 | **Headless/daemon** | Log to file |
 
 **No built-in TUI/GUI wizard for Server or Agent binaries.** They just run:
-- **Server**: Has web-based setup at `/{admin_path}/server/setup` (accessed via browser, see PART 17)
+- **Server**: Has web-based setup at `/server/{admin_path}/config/setup` (accessed via browser, see PART 17)
 - **Agent**: Configured via connection string from server admin panel
 
 **Note:** "Setup wizard" has two meanings:
-1. **Server's web-based setup** - HTML pages served by server, accessed in browser at `/{admin_path}/server/setup`
+1. **Server's web-based setup** - HTML pages served by server, accessed in browser at `/server/{admin_path}/config/setup`
 2. **CLI's built-in TUI/GUI wizard** - interactive wizard built into CLI binary itself
 
 Only CLI has a built-in wizard. Server serves web pages for setup.
 
 **Agent connection string example (provided by server admin panel):**
 ```
-caspbx-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
+{project_name}-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
 ```
 
 ### CLI: Full TUI/GUI App with Setup Wizard
@@ -48270,14 +49255,14 @@ Why CLI needs a setup wizard:
 ### CLI First-Run Flow
 
 ```
-User double-clicks caspbx-cli:
+User double-clicks {project_name}-cli:
 
 1. SETUP WIZARD (GUI or TUI based on environment)
    ┌─────────────────────────────────────────────────────────────┐
-   │  CASPBX CLI Setup                                [X] │
+   │  {PROJECT_NAME} CLI Setup                                [X] │
    ├─────────────────────────────────────────────────────────────┤
    │                                                             │
-   │  Connect to a caspbx server:                         │
+   │  Connect to a {project_name} server:                         │
    │                                                             │
    │  Server URL:                                                │
    │  [https://                                           ] [?]  │
@@ -48353,7 +49338,7 @@ func selectSetupMode() SetupMode {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  CASPBX Setup                                    [X] │
+│  {PROJECT_NAME} Setup                                    [X] │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  Welcome! Let's configure your server.                      │
@@ -48374,7 +49359,7 @@ func selectSetupMode() SetupMode {
 
 ```
 ╔══════════════════════════════════════════════════════════════════════╗
-║                      CASPBX CLI SETUP                          ║
+║                      {PROJECT_NAME} CLI SETUP                          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║                                                                      ║
 ║   No server configured. Let's set one up!                            ║
@@ -48391,7 +49376,7 @@ func selectSetupMode() SetupMode {
 **CLI Setup Wizard Flow:**
 
 ```
-User double-clicks caspbx-cli:
+User double-clicks {project_name}-cli:
 
 1. Check for config file (cli.yml)
    ├─ Config exists with valid server URL?
@@ -48415,7 +49400,7 @@ User double-clicks caspbx-cli:
 ```
 Agent is configured via server-provided connection string:
 
-caspbx-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
+{project_name}-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
 
 First run without connection string:
 - Show error: "No connection configured. Use --connect flag with server-provided URL."
@@ -48543,11 +49528,11 @@ import (
 )
 
 func launchGTKGui(config *Config) error {
-    app := gtk.NewApplication("io.github.casapps.caspbx.cli", gio.ApplicationFlagsNone)
+    app := gtk.NewApplication("{plist_name}.cli", gio.ApplicationFlagsNone)
 
     app.ConnectActivate(func() {
         win := gtk.NewApplicationWindow(app)
-        win.SetTitle("CASPBX CLI")
+        win.SetTitle("{PROJECT_NAME} CLI")
         win.SetDefaultSize(800, 600)
 
         // Build UI from config
@@ -48597,7 +49582,7 @@ import "C"
 import "unsafe"
 
 func launchCocoaGui(config *Config) error {
-    title := C.CString("CASPBX CLI")
+    title := C.CString("{PROJECT_NAME} CLI")
     defer C.free(unsafe.Pointer(title))
 
     C.launchCocoaApp(title, 800, 600)
@@ -48616,7 +49601,7 @@ func launchCocoaGui(config *Config) error {
 //         styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
 //                    NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable)
 //         backing:NSBackingStoreBuffered defer:NO];
-//     [self.window setTitle:@"CASPBX CLI"];
+//     [self.window setTitle:@"{PROJECT_NAME} CLI"];
 //     [self.window center];
 //     [self.window makeKeyAndOrderFront:nil];
 // }
@@ -48658,8 +49643,8 @@ const (
 )
 
 func launchWin32Gui(config *Config) error {
-    className := windows.StringToUTF16Ptr("caspbx_cli_window")
-    windowName := windows.StringToUTF16Ptr("CASPBX CLI")
+    className := windows.StringToUTF16Ptr("{project_name}_cli_window")
+    windowName := windows.StringToUTF16Ptr("{PROJECT_NAME} CLI")
 
     // Register window class
     var wc WNDCLASSEXW
@@ -48945,7 +49930,7 @@ func calculateGUILayout(width, height int, dpi float64) Layout {
 // src/client/tui/layout.go
 package tui
 
-import "casapps/caspbx/common/terminal"
+import "{project_org}/{internal_name}/common/terminal"
 
 // LayoutConfig provides TUI-specific layout settings based on SizeMode
 type LayoutConfig struct {
@@ -49232,10 +50217,10 @@ When command arguments are provided:
 
 ```bash
 # Standard CLI output (your project)
-caspbx-cli create --file notes.txt --expire 24h
-caspbx-cli get abc123 --output json
-caspbx-cli list --limit 10
-caspbx-cli search --query "keyword"
+{project_name}-cli create --file notes.txt --expire 24h
+{project_name}-cli get abc123 --output json
+{project_name}-cli list --limit 10
+{project_name}-cli search --query "keyword"
 ```
 
 ### TUI Mode (Automatic)
@@ -49244,7 +50229,7 @@ When launched with no arguments in an interactive terminal:
 
 ```bash
 # Launch TUI (no arguments needed)
-caspbx-cli              # Opens TUI automatically
+{project_name}-cli              # Opens TUI automatically
 
 # TUI provides:
 # - Interactive menus
@@ -49260,11 +50245,12 @@ caspbx-cli              # Opens TUI automatically
 
 ### Directory Structure
 
-**client ALWAYS runs as user. NEVER as root/administrator. NEVER uses system directories.**
+**client runtime state is always user-scope. The CLI binary may be installed system-wide, but config/data/cache/logs MUST stay in the invoking user's XDG/profile directories.**
 
 The CLI binary:
-- Runs as current user only (no privilege escalation)
-- Uses user home directories exclusively
+- Runs in the invoking user's context without privilege escalation
+- Uses user/home/profile directories exclusively, even if the invoking user happens to be root/Administrator
+- May be installed in a shared system PATH location (for example `/usr/local/bin`) so one binary is available to all users
 - Creates all directories and files itself (no external scripts/installers)
 - Sets permissions and ownership before creating any files
 - Works identically across all platforms (Linux, macOS, Windows)
@@ -49275,23 +50261,23 @@ The client uses the same user directory structure as the server in user mode. Th
 
 | Directory | Path | Purpose |
 |-----------|------|---------|
-| Config | `~/.config/casapps/caspbx/` | Configuration files |
-| Config File | `~/.config/casapps/caspbx/cli.yml` | CLI configuration |
-| Data | `~/.local/share/casapps/caspbx/` | Persistent data |
-| Cache | `~/.cache/casapps/caspbx/` | Temporary/cached data |
-| Logs | `~/.local/log/casapps/caspbx/` | Log files |
-| Log File | `~/.local/log/casapps/caspbx/cli.log` | CLI log output |
+| Config | `~/.config/{project_org}/{internal_name}/` | Configuration files |
+| Config File | `~/.config/{project_org}/{internal_name}/cli.yml` | CLI configuration |
+| Data | `~/.local/share/{project_org}/{internal_name}/` | Persistent data |
+| Cache | `~/.cache/{project_org}/{internal_name}/` | Temporary/cached data |
+| Logs | `~/.local/log/{project_org}/{internal_name}/` | Log files |
+| Log File | `~/.local/log/{project_org}/{internal_name}/cli.log` | CLI log output |
 
 #### Windows
 
 | Directory | Path | Purpose |
 |-----------|------|---------|
-| Config | `%APPDATA%\casapps\caspbx\` | Configuration files |
-| Config File | `%APPDATA%\casapps\caspbx\cli.yml` | CLI configuration |
-| Data | `%LOCALAPPDATA%\casapps\caspbx\data\` | Persistent data |
-| Cache | `%LOCALAPPDATA%\casapps\caspbx\cache\` | Temporary/cached data |
-| Logs | `%LOCALAPPDATA%\casapps\caspbx\log\` | Log files |
-| Log File | `%LOCALAPPDATA%\casapps\caspbx\log\cli.log` | CLI log output |
+| Config | `%APPDATA%\{project_org}\{internal_name}\` | Configuration files |
+| Config File | `%APPDATA%\{project_org}\{internal_name}\cli.yml` | CLI configuration |
+| Data | `%LOCALAPPDATA%\{project_org}\{internal_name}\data\` | Persistent data |
+| Cache | `%LOCALAPPDATA%\{project_org}\{internal_name}\cache\` | Temporary/cached data |
+| Logs | `%LOCALAPPDATA%\{project_org}\{internal_name}\log\` | Log files |
+| Log File | `%LOCALAPPDATA%\{project_org}\{internal_name}\log\cli.log` | CLI log output |
 
 #### Directory Usage
 
@@ -49302,12 +50288,12 @@ The client uses the same user directory structure as the server in user mode. Th
 | Cache | API response cache, temp files, thumbnails | No (recreatable) |
 | Logs | `cli.log`, debug logs | Optional |
 
-**NEVER use OS system directories:**
-- `/etc/casapps/caspbx/` (Linux system config)
-- `/var/lib/casapps/caspbx/` (Linux system data)
-- `/var/log/casapps/caspbx/` (Linux system logs)
+**NEVER use OS system directories for CLI runtime state:**
+- `/etc/{project_org}/{internal_name}/` (Linux system config)
+- `/var/lib/{project_org}/{internal_name}/` (Linux system data)
+- `/var/log/{project_org}/{internal_name}/` (Linux system logs)
 - `C:\ProgramData\` (Windows system data)
-- Any directory requiring elevated privileges
+- Any other system-owned directory for CLI config/data/cache/logs
 
 #### CLI Startup Sequence
 
@@ -49317,10 +50303,10 @@ On every startup, the CLI MUST:
 
 1. **Ensure directories exist** (create if missing):
    ```
-   ├─ {config_dir}/           (~/.config/casapps/caspbx/)
-   ├─ {data_dir}/             (~/.local/share/casapps/caspbx/)
-   ├─ {cache_dir}/            (~/.cache/casapps/caspbx/)
-   └─ {log_dir}/              (~/.local/log/casapps/caspbx/)
+   ├─ {config_dir}/           (~/.config/{project_org}/{internal_name}/)
+   ├─ {data_dir}/             (~/.local/share/{project_org}/{internal_name}/)
+   ├─ {cache_dir}/            (~/.cache/{project_org}/{internal_name}/)
+   └─ {log_dir}/              (~/.local/log/{project_org}/{internal_name}/)
    ```
 
 2. **Set correct permissions** (user-only access):
@@ -49329,8 +50315,8 @@ On every startup, the CLI MUST:
    - Log files: `0600` (rw-------)
 
 3. **Verify ownership** (current user):
-   - All directories and files owned by running user
-   - No root/admin ownership ever
+   - All directories and files owned by the invoking user account for that run
+   - Never require system ownership or privileged/system directories just because the invoking user is root/admin
 
 ```go
 // src/client/init.go
@@ -49429,8 +50415,8 @@ import (
 )
 
 const (
-	projectOrg  = "casapps"
-	projectName = "caspbx"
+	projectOrg  = "{project_org}"
+	projectName = "{project_name}"
 )
 
 // ConfigDir returns the CLI config directory
@@ -49557,9 +50543,9 @@ func resolveYamlExtension(path string) string {
 **Example usage:**
 ```bash
 # Use different configs for different environments
-caspbx-cli --config dev list              # Uses ~/.config/.../dev.yml
-caspbx-cli --config staging list          # Uses ~/.config/.../staging.yml
-caspbx-cli --config ~/work/prod.yml list  # Uses absolute path
+{project_name}-cli --config dev list              # Uses ~/.config/.../dev.yml
+{project_name}-cli --config staging list          # Uses ~/.config/.../staging.yml
+{project_name}-cli --config ~/work/prod.yml list  # Uses absolute path
 
 # Config profiles allow different servers/tokens without flags
 # dev.yml:   server: https://dev.example.com, token: dev-token
@@ -49571,7 +50557,7 @@ caspbx-cli --config ~/work/prod.yml list  # Uses absolute path
 **EVERYTHING must be configurable via cli.yml. Sane defaults match server where applicable.**
 
 ```yaml
-# ~/.config/casapps/caspbx/cli.yml
+# ~/.config/{project_org}/{internal_name}/cli.yml
 # client configuration - ALL options with defaults
 
 # Server connection
@@ -49636,18 +50622,18 @@ defaults:
 | Priority | Source | Example |
 |----------|--------|---------|
 | 1 | CLI flag | `--format json` |
-| 2 | Environment variable | `CASPBX_FORMAT=json` |
+| 2 | Environment variable | `{PROJECT_NAME}_FORMAT=json` |
 | 3 | Config file | `output.format: json` |
 | 4 | Compiled default | `table` |
 
 **Environment variable mapping:**
 ```bash
-# Pattern: CASPBX_{SECTION}_{KEY} or CASPBX_{KEY}
-CASPBX_SERVER_PRIMARY="https://example.com"
-CASPBX_SERVER_TIMEOUT=60
-CASPBX_TOKEN="usr_abc123..."
-CASPBX_OUTPUT_FORMAT="json"
-CASPBX_DEBUG=true
+# Pattern: {PROJECT_NAME}_{SECTION}_{KEY} or {PROJECT_NAME}_{KEY}
+{PROJECT_NAME}_SERVER_PRIMARY="https://example.com"
+{PROJECT_NAME}_SERVER_TIMEOUT=60
+{PROJECT_NAME}_TOKEN="usr_abc123..."
+{PROJECT_NAME}_OUTPUT_FORMAT="json"
+{PROJECT_NAME}_DEBUG=true
 ```
 
 ### CLI Cluster Failover
@@ -49668,7 +50654,7 @@ On every CLI command:
 2. Try server.primary
 3. If fails → try server.cluster nodes (silent failover)
 4. Execute command on first available node
-5. Background: GET /api/{api_version}/healthz
+5. Background: GET /api/{api_version}/server/healthz
 6. Read cluster.primary and cluster.nodes from response
 7. Update server.primary and server.cluster in cli.yml (async, non-blocking)
 ```
@@ -49726,47 +50712,50 @@ func saveIfEmpty(current, newValue string, validate func(string) bool) (string, 
 **Error when no server configured (projects without official site):**
 
 ```bash
-$ caspbx-cli list
+$ {project_name}-cli list
 Error: no server configured
 
 To configure a server, run:
-  caspbx-cli --server https://your-server.example.com list
+  {project_name}-cli --server https://your-server.example.com list
 
 This will save the server address for future commands.
-Or edit ~/.config/casapps/caspbx/cli.yml directly.
+Or edit ~/.config/{project_org}/{internal_name}/cli.yml directly.
 ```
 
 **Projects with official site show default in help:**
 
 ```bash
-$ caspbx-cli --help
+$ {project_name}-cli --help
 ...
 Flags:
-      --server string    Server address (default: https://caspbx.example.com)
+      --server string    Server address (default: https://{project_name}.example.com)
 ...
 ```
 
-**Official site (`{official_site}`) is defined in the project's AI.md or README.md and compiled into the binary.**
+**Official site (`{official_site}`) is taken from `site.txt` when that file exists. Otherwise fall back to `IDEA.md ## Project variables` (`official_site`) and other compatibility sources.**
 
 **What official site affects:**
 - README.md: Default production site URL in examples
 - CLI/Agent: Default `--server` URL (so users don't need to specify)
 
 **What official site does NOT affect:**
-- Docker labels (use `casapps`, `caspbx`, `{fqdn}`)
+- Docker labels (use `{project_org}`, `{project_name}`, `{fqdn}`)
 - Documentation structure or content
 - Build artifacts or binary metadata
 - Any runtime behavior (just a compiled default)
 
 Sources for official site (check in order):
-1. AI.md: `Official Site: https://...` or `{official_site}: https://...`
-2. README.md: `Official site is: https://...` or `Site: https://...`
-3. AI asks user (if not found in docs)
-4. If user selects "none", project has no default server
+1. `site.txt`: single line URL `https://...`
+2. `IDEA.md ## Project variables`: `official_site: https://...`
+3. README.md: `Official site is: https://...` or `Site: https://...` (compatibility fallback only)
+4. AI asks user (if not found in canonical project files)
+5. If user selects "none", project has no default server
+
+**Conflict rule:** if both `site.txt` and `IDEA.md` exist and disagree, `site.txt` wins. Update `IDEA.md` to match or remove the stale `official_site` entry.
 
 **AI should ask if not defined:**
 ```
-Official site not found in AI.md or README.md.
+Official site not found in site.txt, IDEA.md, or README.md.
 What is the official site for this project?
 
 1) https://projectname.example.com
@@ -49802,11 +50791,11 @@ See PART 5: Boolean Handling for the complete implementation.
 
 **Usage in flags:**
 ```bash
-caspbx-cli --public                    # Boolean flag (true)
-caspbx-cli --public=yes                # Explicit truthy
-caspbx-cli --public=no                 # Explicit falsey
-caspbx-cli --expire=0                  # Falsey = no expiration
-caspbx-cli --expire=disabled           # Falsey = no expiration
+{project_name}-cli --public                    # Boolean flag (true)
+{project_name}-cli --public=yes                # Explicit truthy
+{project_name}-cli --public=no                 # Explicit falsey
+{project_name}-cli --expire=0                  # Falsey = no expiration
+{project_name}-cli --expire=disabled           # Falsey = no expiration
 ```
 
 **Config file (cli.yml):**
@@ -49851,29 +50840,29 @@ server:
 **Search/Query CLI (minimal flags):**
 ```bash
 # Args ARE the search - no flags needed for basic use
-caspbx-cli golang tutorials           # Search
-caspbx-cli --limit 10 golang          # With limit
-caspbx-cli --output json golang       # JSON output
+{project_name}-cli golang tutorials           # Search
+{project_name}-cli --limit 10 golang          # With limit
+{project_name}-cli --output json golang       # JSON output
 ```
 
 **Pastebin/Content CLI:**
 ```bash
 # Smart detection handles input, flags for metadata
-caspbx-cli notes.txt                          # File (detected), uses defaults
-caspbx-cli notes.txt --public yes             # Public paste
-caspbx-cli notes.txt --public no              # Private (requires auth)
-caspbx-cli notes.txt --public unlisted        # Unlisted (default)
-caspbx-cli notes.txt --expire 24h             # Expiration
-caspbx-cli notes.txt --syntax python          # Syntax highlight
-caspbx-cli notes.txt --author "John"          # Author name
+{project_name}-cli notes.txt                          # File (detected), uses defaults
+{project_name}-cli notes.txt --public yes             # Public paste
+{project_name}-cli notes.txt --public no              # Private (requires auth)
+{project_name}-cli notes.txt --public unlisted        # Unlisted (default)
+{project_name}-cli notes.txt --expire 24h             # Expiration
+{project_name}-cli notes.txt --syntax python          # Syntax highlight
+{project_name}-cli notes.txt --author "John"          # Author name
 ```
 
 **API/Data CLI:**
 ```bash
 # Resource-specific flags
-caspbx-cli get abc123                         # Get by ID
-caspbx-cli list --limit 20 --offset 0         # Pagination
-caspbx-cli delete abc123 --force              # Dangerous ops need confirm
+{project_name}-cli get abc123                         # Get by ID
+{project_name}-cli list --limit 20 --offset 0         # Pagination
+{project_name}-cli delete abc123 --force              # Dangerous ops need confirm
 ```
 
 ### Flag Defaults from Config
@@ -49893,7 +50882,7 @@ defaults:
 
 **Precedence (highest to lowest):**
 1. Command-line flag (`--public yes`)
-2. Environment variable (`CASPBX_PUBLIC=yes`)
+2. Environment variable (`{PROJECT_NAME}_PUBLIC=yes`)
 3. Config file (`defaults.public: yes`)
 4. Hardcoded default
 
@@ -49921,12 +50910,12 @@ defaults:
 **`--shell init` is just a convenience wrapper:**
 ```bash
 # These are equivalent:
-eval "$(caspbx --shell init)"
-eval "$(caspbx --shell init bash)"      # if $SHELL=/bin/bash
+eval "$({project_name} --shell init)"
+eval "$({project_name} --shell init bash)"      # if $SHELL=/bin/bash
 
 # init outputs the eval command, completions outputs the script:
-caspbx --shell init        # → source <(caspbx --shell completions bash)
-caspbx --shell completions # → (actual completion script)
+{project_name} --shell init        # → source <({project_name} --shell completions bash)
+{project_name} --shell completions # → (actual completion script)
 ```
 
 **Supported shells:**
@@ -49950,28 +50939,28 @@ caspbx --shell completions # → (actual completion script)
 **Usage examples:**
 ```bash
 # Explicit shell specification
-caspbx --shell completions bash > ~/.local/share/bash-completion/completions/caspbx
-caspbx-cli --shell completions zsh > ~/.zsh/completions/_caspbx-cli
-caspbx-agent --shell completions fish > ~/.config/fish/completions/caspbx-agent.fish
-caspbx --shell completions powershell > ~/Documents/PowerShell/completions/caspbx.ps1
+{project_name} --shell completions bash > ~/.local/share/bash-completion/completions/{project_name}
+{project_name}-cli --shell completions zsh > ~/.zsh/completions/_{project_name}-cli
+{project_name}-agent --shell completions fish > ~/.config/fish/completions/{project_name}-agent.fish
+{project_name} --shell completions powershell > ~/Documents/PowerShell/completions/{project_name}.ps1
 
 # Auto-detect shell (omit SHELL argument)
-caspbx --shell completions > ~/completions/caspbx
-caspbx-cli --shell init                    # auto-detect, print init
-eval "$(caspbx --shell init)"              # auto-detect in eval
+{project_name} --shell completions > ~/completions/{project_name}
+{project_name}-cli --shell init                    # auto-detect, print init
+eval "$({project_name} --shell init)"              # auto-detect in eval
 
 # Specific shell init
-eval "$(caspbx-cli --shell init bash)"
-eval "$(caspbx-agent --shell init zsh)"
-caspbx --shell init fish | source
+eval "$({project_name}-cli --shell init bash)"
+eval "$({project_name}-agent --shell init zsh)"
+{project_name} --shell init fish | source
 ```
 
 **Add to shell rc file:**
 ```bash
 # ~/.bashrc, ~/.zshrc, ~/.config/fish/config.fish, etc.
-eval "$(caspbx --shell init)"        # server (auto-detect)
-eval "$(caspbx-cli --shell init)"    # client (auto-detect)
-eval "$(caspbx-agent --shell init)"  # agent (auto-detect)
+eval "$({project_name} --shell init)"        # server (auto-detect)
+eval "$({project_name}-cli --shell init)"    # client (auto-detect)
+eval "$({project_name}-agent --shell init)"  # agent (auto-detect)
 ```
 
 **Why built-in (not separate files):**
@@ -50057,12 +51046,12 @@ func printInit(shell, binaryName string) {
 ### --help Output
 
 ```bash
-$ caspbx-cli --help
-caspbx-cli {projectversion} - CLI for caspbx
+$ {project_name}-cli --help
+{project_name}-cli {projectversion} - CLI for {project_name}
 
 Usage:
-  caspbx-cli [args] [flags]
-  caspbx-cli                    # TUI mode (no args)
+  {project_name}-cli [args] [flags]
+  {project_name}-cli                    # TUI mode (no args)
 
 Flags:
   -h, --help                        Show help
@@ -50089,13 +51078,13 @@ Administration (requires admin token):
 Shells: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
 
 Run without arguments for interactive TUI mode.
-Run 'caspbx-cli <command> --help' for detailed help on any command.
+Run '{project_name}-cli <command> --help' for detailed help on any command.
 ```
 
 **If user renames binary:**
 ```bash
 $ mypaste --help
-mypaste {projectversion} - client for caspbx API   # Shows actual binary name
+mypaste {projectversion} - client for {project_name} API   # Shows actual binary name
 
 Usage:
   mypaste [command] [flags]                     # Shows actual binary name
@@ -50107,8 +51096,8 @@ Usage:
 **MUST match server `--version` format. Shows ACTUAL binary name:**
 
 ```bash
-$ caspbx-cli --version
-caspbx-cli {projectversion} ({commit_sha}) built {build_date}
+$ {project_name}-cli --version
+{project_name}-cli {projectversion} ({commit_sha}) built {build_date}
 
 # If renamed:
 $ mypaste --version
@@ -50149,11 +51138,11 @@ Example commands (project-dependent):
 **Token Storage:**
 - Stored in `cli.yml` under `server.token`
 - `--token` flag saves to cli.yml only if not already set (same as `--server`)
-- Environment variable: `CASPBX_CLI_TOKEN` (does NOT save to config)
+- Environment variable: `{PROJECT_NAME}_CLI_TOKEN` (does NOT save to config)
 
 **Priority (highest to lowest):**
 1. `--token` flag (saves only if config empty/invalid)
-2. `CASPBX_CLI_TOKEN` environment variable
+2. `{PROJECT_NAME}_CLI_TOKEN` environment variable
 3. `server.token` in cli.yml
 
 ## HTTP Client Identity
@@ -50179,16 +51168,16 @@ Example commands (project-dependent):
 ### User-Agent Format
 
 ```
-caspbx-cli/{version}
+{project_name}-cli/{version}
 ```
 
 **Examples (User-Agent uses compiled project name, not binary name):**
 
 | Binary Name | User-Agent Header |
 |-------------|-------------------|
-| `caspbx-cli` | `caspbx-cli/1.2.3` |
-| `mypaste` (renamed by user) | `caspbx-cli/1.2.3` |
-| `pb` (renamed by user) | `caspbx-cli/1.2.3` |
+| `{project_name}-cli` | `{project_name}-cli/1.2.3` |
+| `mypaste` (renamed by user) | `{project_name}-cli/1.2.3` |
+| `pb` (renamed by user) | `{project_name}-cli/1.2.3` |
 
 ### Implementation
 
@@ -50216,7 +51205,7 @@ func GetBinaryName() string {
 **Build command (CI/CD injects version from git tag):**
 ```bash
 # VERSION comes from git tag (see PART 26/28 for version handling)
-go build -ldflags "-X main.ProjectName=caspbx -X main.Version=${VERSION}" -o caspbx-cli ./src/client
+go build -ldflags "-X main.ProjectName={project_name} -X main.Version=${VERSION}" -o {project_name}-cli ./src/client
 ```
 
 ### Server-Side Client Detection
@@ -50362,7 +51351,7 @@ package api
 
 import (
     "net/http"
-    "github.com/casapps/caspbx/common/urlutil"
+    "github.com/{project_org}/{internal_name}/common/urlutil"
 )
 
 type APIClient struct {
@@ -50437,7 +51426,7 @@ func (c *APIClient) doAPIRequest(method, apiURL string, body io.Reader) (*APIRes
 ### JSON
 
 ```bash
-$ caspbx-cli get abc123 --output json
+$ {project_name}-cli get abc123 --output json
 {
   "id": "abc123",
   "content": "Hello world example code snippet",
@@ -50449,7 +51438,7 @@ $ caspbx-cli get abc123 --output json
 ### Table
 
 ```bash
-$ caspbx-cli list --output table
+$ {project_name}-cli list --output table
 ┌──────────┬─────────────────────────────────────────────┬──────────┬─────────────┐
 │ ID       │ Content                                     │ Language │ Expires     │
 ├──────────┼─────────────────────────────────────────────┼──────────┼─────────────┤
@@ -50462,7 +51451,7 @@ $ caspbx-cli list --output table
 ### Plain
 
 ```bash
-$ caspbx-cli get abc123 --output plain
+$ {project_name}-cli get abc123 --output plain
 Hello world example code snippet
 ```
 
@@ -50477,18 +51466,18 @@ Each project defines its own commands based on its API.
 **Search/Query Services:**
 ```bash
 # Bare args = search term (no --query flag needed)
-caspbx-cli golang tutorials        # Search for "golang tutorials"
-caspbx-cli "exact phrase"          # Quoted = exact match
-caspbx-cli --limit 5 golang        # Flags before search term OK
+{project_name}-cli golang tutorials        # Search for "golang tutorials"
+{project_name}-cli "exact phrase"          # Quoted = exact match
+{project_name}-cli --limit 5 golang        # Flags before search term OK
 ```
 
 **Content/Paste Services:**
 ```bash
 # Detection order: stdin → file → directory → text
-echo "hello" | caspbx-cli          # stdin detected → paste stdin
-caspbx-cli notes.txt               # File exists → paste file content
-caspbx-cli /path/to/dir            # Directory → error or list
-caspbx-cli "some text here"        # Not file → paste as text
+echo "hello" | {project_name}-cli          # stdin detected → paste stdin
+{project_name}-cli notes.txt               # File exists → paste file content
+{project_name}-cli /path/to/dir            # Directory → error or list
+{project_name}-cli "some text here"        # Not file → paste as text
 ```
 
 **Detection Logic:**
@@ -50532,8 +51521,8 @@ func detectInput(args []string) (content string, source string) {
 
 **Explicit flags still work (override detection):**
 ```bash
-caspbx-cli --file notes.txt        # Force file mode
-caspbx-cli --text "notes.txt"      # Force text mode (not file)
+{project_name}-cli --file notes.txt        # Force file mode
+{project_name}-cli --text "notes.txt"      # Force text mode (not file)
 ```
 
 ## Build Integration
@@ -50545,29 +51534,29 @@ caspbx-cli --text "notes.txt"      # Force text mode (not file)
 ```bash
 # Quick dev build (server + CLI + agent if exist)
 make dev
-# Output: ${TMPDIR}/$CASAPPS/$CASPBX-XXXXXX/caspbx, caspbx-cli, caspbx-agent
+# Output: ${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/{project_name}, {project_name}-cli, {project_name}-agent
 
 # Production test build
 make local
-# Output: binaries/caspbx, binaries/caspbx-cli (with version)
+# Output: binaries/{project_name}, binaries/{project_name}-cli (with version)
 
 # Full release (all 8 platforms)
 make build
-# Output: binaries/caspbx-{os}-{arch}, binaries/caspbx-cli-{os}-{arch}
+# Output: binaries/{project_name}-{os}-{arch}, binaries/{project_name}-cli-{os}-{arch}
 ```
 
 ### CI/CD (Direct go build - NOT Makefile)
 
 ```bash
-# CI/CD uses actions/setup-go@v5, NOT Docker containers
+# CI/CD runs inside `golang:alpine` (or uses `docker run ... golang:alpine`), NOT `actions/setup-go`
 # See PART 28: CI/CD WORKFLOWS for complete examples
-go build -ldflags "${LDFLAGS}" -o $CASPBX-cli ./src/client
+go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli ./src/client
 ```
 
 ### Directory Structure
 
 ```
-caspbx/
+{project_name}/
 ├── src/                    # Server application
 │   ├── main.go
 │   ├── config/
@@ -50643,7 +51632,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 client uses `common/terminal` from PART 7:
 ```go
 // CLI uses common/terminal package (defined in PART 7)
-import "casapps/caspbx/common/terminal"
+import "{project_org}/{internal_name}/common/terminal"
 
 func (m SizeMode) MaxTableColumns() int {
     switch m {
@@ -50918,19 +51907,19 @@ stty rows 10 cols 40
 
 ```bash
 # Connection error
-$ caspbx-cli list
-Error: cannot connect to server at https://caspbx.example.com
+$ {project_name}-cli list
+Error: cannot connect to server at https://{project_name}.example.com
   Check your network connection and server address.
   Use --server to specify a different server.
 
 # Auth error
-$ caspbx-cli admin users --token invalid
+$ {project_name}-cli admin users --token invalid
 Error: authentication failed
   Your API token is invalid or expired.
   Update server.token in cli.yml or use --token flag.
 
 # Not found
-$ caspbx-cli get abc123
+$ {project_name}-cli get abc123
 Error: resource not found: abc123
 ```
 
@@ -50939,10 +51928,10 @@ Error: resource not found: abc123
 When server is reachable, `--version` can show extended info:
 
 ```bash
-$ caspbx-cli --version
-caspbx-cli {projectversion} ({commit_sha}) built {build_date}
+$ {project_name}-cli --version
+{project_name}-cli {projectversion} ({commit_sha}) built {build_date}
 
-Server: https://caspbx.example.com
+Server: https://{project_name}.example.com
 Server Version: {projectversion} (compatible)
 
 Build Info:
@@ -51284,7 +52273,7 @@ Answer these questions for your specific project:
 
 | Attribute | Value |
 |-----------|-------|
-| Binary naming | `caspbx-agent-{os}-{arch}` |
+| Binary naming | `{project_name}-agent-{os}-{arch}` |
 | Examples | `monitor-agent-linux-amd64`, `monitor-agent-windows-arm64` |
 | Versioning | Same as server and client |
 | Build | Part of same Makefile (`make build` builds all if `src/agent/` exists) |
@@ -51409,12 +52398,12 @@ register                      # Interactive registration with server
 ### Agent --help Output
 
 ```bash
-$ caspbx-agent --help
-caspbx-agent {projectversion} - Agent for caspbx
+$ {project_name}-agent --help
+{project_name}-agent {projectversion} - Agent for {project_name}
 
 Usage:
-  caspbx-agent [flags]
-  caspbx-agent [command]
+  {project_name}-agent [flags]
+  {project_name}-agent [command]
 
 Commands:
   status                        Show agent status
@@ -51452,10 +52441,10 @@ Shells: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
 
 ```bash
 # Default: run agent (foreground)
-caspbx-agent
+{project_name}-agent
 
 # Status: show current agent status
-caspbx-agent status
+{project_name}-agent status
   Agent: monitor-agent v1.0.0
   Hostname: web-server-01
   Server: https://monitor.example.com
@@ -51464,14 +52453,14 @@ caspbx-agent status
   Next Report: 2025-01-15 10:31:00
 
 # Test: verify server connection
-caspbx-agent test
+{project_name}-agent test
   Testing connection to https://monitor.example.com...
   ✅ Connection successful
   ✅ Authentication valid
   ✅ Agent registered
 
 # Connect: one-liner from server panel (preferred)
-caspbx-agent --server https://monitor.example.com --token adm_agt_abc123def456...
+{project_name}-agent --server https://monitor.example.com --token adm_agt_abc123def456...
   Connecting to https://monitor.example.com...
   ✅ Connection successful
   ✅ Token validated
@@ -51484,11 +52473,11 @@ caspbx-agent --server https://monitor.example.com --token adm_agt_abc123def456..
   Agent is now sending data to server for admin scope.
 
 # Service management
-caspbx-agent --service install   # Install as system service
-caspbx-agent --service start     # Start service
-caspbx-agent --service stop      # Stop service
-caspbx-agent --service status    # Show service status
-caspbx-agent --service uninstall # Remove service
+{project_name}-agent --service install   # Install as system service
+{project_name}-agent --service start     # Start service
+{project_name}-agent --service stop      # Stop service
+{project_name}-agent --service status    # Show service status
+{project_name}-agent --service uninstall # Remove service
 ```
 
 ### Agent Setup Process
@@ -51506,7 +52495,7 @@ caspbx-agent --service uninstall # Remove service
 │                                                             │
 │  2. On Target Machine (one command)                            │
 │     └─→ Paste and run the one-liner:                        │
-│         caspbx-agent --server {url} --token {token}  │
+│         {project_name}-agent --server {url} --token {token}  │
 │     └─→ Agent connects, registers, saves config             │
 │     └─→ Server shows notification: "{name} has connected"   │
 │                                                             │
@@ -51531,7 +52520,7 @@ func GenerateAgentCommand(serverURL, token string) string {
 
 | Scope | Token Prefix | Issued By | Route |
 |-------|--------------|-----------|-------|
-| Admin | `adm_agt_` | Admin panel | `/api/{api_version}/{admin_path}/server/agents/*` |
+| Admin | `adm_agt_` | Admin panel | `/api/{api_version}/server/{admin_path}/config/agents/*` |
 | User | `usr_agt_` | User settings | `/api/{api_version}/users/agents/*` |
 | Org | `org_agt_` | Org settings | `/api/{api_version}/orgs/{slug}/agents/*` |
 
@@ -51558,7 +52547,7 @@ func GenerateAgentToken(scope AgentScope) string {
 
 | Scope | Endpoint |
 |-------|----------|
-| Admin | `POST /api/{api_version}/{admin_path}/server/agents/register` |
+| Admin | `POST /api/{api_version}/server/{admin_path}/config/agents/register` |
 | User | `POST /api/{api_version}/users/agents/register` |
 | Org | `POST /api/{api_version}/orgs/{slug}/agents/register` |
 
@@ -51603,8 +52592,8 @@ func GenerateAgentToken(scope AgentScope) string {
 **File: `{config_dir}/agent.yml`** (same directory as server.yml)
 
 ```yaml
-# /etc/casapps/caspbx/agent.yml (root)
-# ~/.config/casapps/caspbx/agent.yml (user)
+# /etc/{project_org}/{internal_name}/agent.yml (root)
+# ~/.config/{project_org}/{internal_name}/agent.yml (user)
 # Agent configuration - ALL options with defaults
 
 # Language for agent output and API requests
@@ -51664,18 +52653,18 @@ mode: ""                           # production, development (empty = auto-detec
 | Priority | Source | Example |
 |----------|--------|---------|
 | 1 | CLI flag | `--server https://...` |
-| 2 | Environment variable | `CASPBX_AGENT_SERVER=https://...` |
+| 2 | Environment variable | `{PROJECT_NAME}_AGENT_SERVER=https://...` |
 | 3 | Config file | `server.primary: https://...` |
 | 4 | Compiled default | (none for server, must be configured) |
 
 **Environment variable mapping:**
 ```bash
-# Pattern: CASPBX_AGENT_{KEY} or CASPBX_{KEY}
-CASPBX_AGENT_SERVER_PRIMARY="https://example.com"
-CASPBX_AGENT_TOKEN="adm_agt_abc123..."
-CASPBX_AGENT_HOSTNAME="web-server-01"
-CASPBX_AGENT_COLLECTION_INTERVAL=30
-CASPBX_DEBUG=true
+# Pattern: {PROJECT_NAME}_AGENT_{KEY} or {PROJECT_NAME}_{KEY}
+{PROJECT_NAME}_AGENT_SERVER_PRIMARY="https://example.com"
+{PROJECT_NAME}_AGENT_TOKEN="adm_agt_abc123..."
+{PROJECT_NAME}_AGENT_HOSTNAME="web-server-01"
+{PROJECT_NAME}_AGENT_COLLECTION_INTERVAL=30
+{PROJECT_NAME}_DEBUG=true
 ```
 
 ### Agent Cluster Failover
@@ -51693,7 +52682,7 @@ CASPBX_DEBUG=true
 **Failover Flow:**
 ```
 1. Agent connects to server.primary
-2. Agent calls GET /api/{api_version}/healthz
+2. Agent calls GET /api/{api_version}/server/healthz
 3. Agent reads cluster.primary and cluster.nodes from response
 4. Agent saves to server.primary and server.cluster in agent.yml
 5. If primary fails:
@@ -51710,7 +52699,7 @@ CASPBX_DEBUG=true
 1. Load agent.yml
 2. Try server.primary
 3. If fails → try server.cluster nodes
-4. Once connected → GET /api/{api_version}/healthz
+4. Once connected → GET /api/{api_version}/server/healthz
 5. Update server.primary and server.cluster from response
 6. Begin normal operation
 ```
@@ -51747,15 +52736,15 @@ CASPBX_DEBUG=true
 
 | Aspect | Client | Agent |
 |--------|------------|-------|
-| **Execution context** | User context | System context |
-| **Runs as** | Current user | root/Administrator |
+| **Execution context** | User-scope context | System context |
+| **Runs as** | Invoking user account (may be root/admin, but still user-scope) | root/Administrator |
 | **Config base path** | `~/` (user home) | `/` (system root) |
-| **Config directory** | `~/.config/casapps/caspbx/` | `/etc/casapps/caspbx/` |
-| **Data directory** | `~/.local/share/casapps/caspbx/` | `/var/lib/casapps/caspbx/` |
-| **Log directory** | `~/.local/log/casapps/caspbx/` | `/var/log/casapps/caspbx/` |
-| **Cache directory** | `~/.cache/casapps/caspbx/` | `/var/cache/casapps/caspbx/` |
-| **Privilege level** | Normal user | Elevated (root/admin) |
-| **System access** | User files only | Full system access |
+| **Config directory** | `~/.config/{project_org}/{internal_name}/` | `/etc/{project_org}/{internal_name}/` |
+| **Data directory** | `~/.local/share/{project_org}/{internal_name}/` | `/var/lib/{project_org}/{internal_name}/` |
+| **Log directory** | `~/.local/log/{project_org}/{internal_name}/` | `/var/log/{project_org}/{internal_name}/` |
+| **Cache directory** | `~/.cache/{project_org}/{internal_name}/` | `/var/cache/{project_org}/{internal_name}/` |
+| **Privilege requirement** | No escalation required | Elevated (root/admin) |
+| **System access** | User-scope files/dirs only | Full system access |
 
 **Why Different Contexts?**
 
@@ -51768,24 +52757,24 @@ CASPBX_DEBUG=true
 
 ```bash
 # Client (user context - runs as "alice")
-~/.config/casapps/caspbx/cli.yml        # Alice's config
-~/.local/share/casapps/caspbx/          # Alice's data
-~/.local/log/casapps/caspbx/cli.log     # Alice's logs
+~/.config/{project_org}/{internal_name}/cli.yml        # Alice's config
+~/.local/share/{project_org}/{internal_name}/          # Alice's data
+~/.local/log/{project_org}/{internal_name}/cli.log     # Alice's logs
 
 # Agent (system context - runs as root)
-/etc/casapps/caspbx/agent.yml           # System config
-/var/lib/casapps/caspbx/                # System data
-/var/log/casapps/caspbx/agent.log       # System logs
+/etc/{project_org}/{internal_name}/agent.yml           # System config
+/var/lib/{project_org}/{internal_name}/                # System data
+/var/log/{project_org}/{internal_name}/agent.log       # System logs
 ```
 
 **Platform-Specific Paths:**
 
 | Platform | Client Config | Agent Config |
 |----------|-------------------|--------------|
-| **Linux** | `~/.config/casapps/caspbx/` | `/etc/casapps/caspbx/` |
-| **macOS** | `~/Library/Application Support/casapps/caspbx/` | `/Library/Application Support/casapps/caspbx/` |
-| **Windows** | `%APPDATA%\casapps\caspbx\` | `%PROGRAMDATA%\casapps\caspbx\` |
-| **FreeBSD** | `~/.config/casapps/caspbx/` | `/usr/local/etc/casapps/caspbx/` |
+| **Linux** | `~/.config/{project_org}/{internal_name}/` | `/etc/{project_org}/{internal_name}/` |
+| **macOS** | `~/Library/Application Support/{project_org}/{internal_name}/` | `/Library/Application Support/{project_org}/{internal_name}/` |
+| **Windows** | `%APPDATA%\{project_org}\{internal_name}\` | `%PROGRAMDATA%\{project_org}\{internal_name}\` |
+| **FreeBSD** | `~/.config/{project_org}/{internal_name}/` | `/usr/local/etc/{project_org}/{internal_name}/` |
 
 ### Purpose Matching
 
@@ -51800,7 +52789,7 @@ All three binaries are built for the SAME project and work together as a system:
 │                                                                            │
 │  ┌─────────────────────┐                                                   │
 │  │       SERVER        │  Central server - serves API, WebUI, manages data│
-│  │    caspbx    │  Runs as service/daemon                           │
+│  │    {project_name}    │  Runs as service/daemon                           │
 │  └──────────┬──────────┘                                                   │
 │             │                                                              │
 │             │ API                                                          │
@@ -51809,11 +52798,11 @@ All three binaries are built for the SAME project and work together as a system:
 │       │           │                                                        │
 │       ▼           ▼                                                        │
 │  ┌─────────────────────┐     ┌─────────────────────────┐                   │
-│  │ caspbx CLIENT │     │         AGENT           │                   │
-│  │  caspbx-cli  │     │  caspbx-agent    │                   │
+│  │ {project_name} CLIENT │     │         AGENT           │                   │
+│  │  {project_name}-cli  │     │  {project_name}-agent    │                   │
 │  └─────────────────────┘     └─────────────────────────┘                   │
 │                                                                            │
-│  caspbx CLIENT:                AGENT:                                   │
+│  {project_name} CLIENT:                AGENT:                                   │
 │  • Full remote admin              • Purpose-specific daemon                │
 │  • TUI/CLI/GUI modes              • Headless, no admin                     │
 │  • User context (~/)              • System context (/)                     │
@@ -51878,7 +52867,7 @@ The Agent is essentially the Server's "little sibling" - same professional struc
 |--------|--------|-------|
 | **Listens for connections** | ✅ Yes (`--port`, `--address`) | ❌ No |
 | **Connects to parent server** | ❌ No (IS the server) | ✅ Yes (`--server`, `--token`) |
-| **Setup** | ✅ Web-based (token entered at `/{admin_path}/server/setup`) | ❌ No (registers with server via connection string) |
+| **Setup** | ✅ Web-based (token entered at `/server/{admin_path}/config/setup`) | ❌ No (registers with server via connection string) |
 | **Admin operations** | N/A (IS the server) | ❌ No (Client's job) |
 | **WebUI** | ✅ Yes | ❌ No (headless) |
 | **Database** | ✅ `server.db` | ✅ `agent.db` (if needed) |
@@ -51913,11 +52902,11 @@ SERVER STARTUP                          AGENT STARTUP
 
 **Admin flags (Client only):**
 ```bash
-caspbx-cli --admin users list          # List all users
-caspbx-cli --admin users create ...    # Create user
-caspbx-cli --admin server status       # Server status
-caspbx-cli --admin server config       # View/edit config
-caspbx-cli --admin backup create       # Create backup
+{project_name}-cli --admin users list          # List all users
+{project_name}-cli --admin users create ...    # Create user
+{project_name}-cli --admin server status       # Server status
+{project_name}-cli --admin server config       # View/edit config
+{project_name}-cli --admin backup create       # Create backup
 ```
 
 ### Agent = Purpose-Specific Worker
@@ -52019,18 +53008,18 @@ src/
 
 ```
 binaries/
-├── caspbx                         # Local server binary - for testing
-├── caspbx-cli                     # Local CLI binary (if src/client/ exists)
-├── caspbx-agent                   # Local agent binary (if src/agent/ exists)
-├── caspbx-linux-amd64             # Server
-├── caspbx-linux-arm64
-├── caspbx-cli-linux-amd64         # CLI (if src/client/ exists)
-├── caspbx-cli-linux-arm64
-├── caspbx-agent-linux-amd64       # Agent (if src/agent/ exists)
-├── caspbx-agent-linux-arm64
-├── caspbx-agent-windows-amd64.exe
-├── caspbx-agent-darwin-amd64
-└── caspbx-agent-darwin-arm64
+├── {project_name}                         # Local server binary - for testing
+├── {project_name}-cli                     # Local CLI binary (if src/client/ exists)
+├── {project_name}-agent                   # Local agent binary (if src/agent/ exists)
+├── {project_name}-linux-amd64             # Server
+├── {project_name}-linux-arm64
+├── {project_name}-cli-linux-amd64         # CLI (if src/client/ exists)
+├── {project_name}-cli-linux-arm64
+├── {project_name}-agent-linux-amd64       # Agent (if src/agent/ exists)
+├── {project_name}-agent-linux-arm64
+├── {project_name}-agent-windows-amd64.exe
+├── {project_name}-agent-darwin-amd64
+└── {project_name}-agent-darwin-arm64
 ```
 
 **See PART 26 (Makefile) for full build details.**
@@ -52078,7 +53067,7 @@ PARTS 34-36 ship marked `OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED`. A project 
 
 
 
-# PART 34: MULTI-USER (REQUIRED - NON-NEGOTIABLE FOR THIS PROJECT)
+# PART 34: MULTI-USER (OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED)
 
 
 ## Overview
@@ -52101,7 +53090,7 @@ PARTS 34-36 ship marked `OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED`. A project 
 | **Purpose** | Manage server, configuration | Use application features |
 | **Storage** | `admins` table | `users` table |
 | **Required** | **YES - all projects** | **NO - optional** |
-| **Access** | `/{admin_path}/*` only | `/users/*` routes |
+| **Access** | `/server/{admin_path}/*` only | `/users/*` routes |
 | **Created by** | Setup wizard, admin invite | Registration, admin invitation |
 
 **See PART 17: ADMIN PANEL for Server Admin authentication, setup wizard, MFA, and admin management.**
@@ -52117,42 +53106,45 @@ users:
   enabled: true
 
   registration:
-    # Registration mode: public, private, disabled
-    mode: public   # Default: anyone can register
+    # Registration mode: open, invite, admin_only, disabled
+    mode: open   # Default: anyone can self-register
 ```
 
 ### Registration Mode Definitions
 
-| Mode | Public Registration | Admin Invite | Default | Use Case |
-|------|--------------------|--------------|---------| ---------|
-| **public** | ✓ Anyone | ✓ Yes | **YES** | Open community, public service |
-| **private** | ✗ No | ✓ Yes | No | Controlled access, invite-only |
-| **disabled** | ✗ No | ✓ Yes | No | Hidden registration, admin creates all |
+| Mode | Public Self-Registration | Admin Invite | Direct Admin Create | Default | Use Case |
+|------|--------------------------|--------------|---------------------|---------|----------|
+| **open** | ✓ Anyone | Optional | Optional | **YES** | Open community, public service |
+| **invite** | ✗ No | ✓ Required | ✗ No | No | Controlled access, invite-only onboarding |
+| **admin_only** | ✗ No | ✗ No | ✓ Required | No | Enterprise/internal tools where admins provision accounts |
+| **disabled** | ✗ No | ✗ No | ✗ No | No | Closed systems with no new regular-user accounts |
 
-**Note:** Admin can ALWAYS create users via invite. Mode only controls public registration visibility.
+**Note:** Registration mode controls how NEW regular-user accounts are created. It does **not** control login for existing users or user profile visibility.
+
+**External identity note:** OIDC/LDAP-backed regular users count as "new regular-user accounts" when the system creates the first local user record for that external identity. Their first-login account creation MUST respect `auto_register` and the username collision rules in PART 34.
 
 **Admin Permission Reminder (see PART 17):**
 - Admin CANNOT set user passwords (only user can, via invite link or reset)
 - Admin CANNOT view user passwords, 2FA secrets, or private data
-- Admin CAN: invite users, send password reset, suspend/unsuspend, disable 2FA
+- Admin CAN: issue invite links, create users directly when the mode allows it, send password reset, suspend/unsuspend, disable 2FA
 
-### Mode: public (DEFAULT)
+### Mode: open (DEFAULT)
 
 **Anyone can register. This is the default when multi-user is enabled.**
 
-- `/auth/register` → Registration form
+- `/server/auth/register` → Registration form
 - User submits username, email, password
 - Email verification sent (if `require_email_verification: true`)
 - After verification → account immediately active
 - No admin action required
 - Use for: Public services, open communities, SaaS apps
 
-### Mode: private
+### Mode: invite
 
-**Admin controls all user creation. Same flow as Server Admin invites (see PART 17).**
+**Only admin-issued invite links/codes can create accounts.**
 
 ```
-Admin Panel (/{admin_path}/server/users)
+Admin Panel (/server/{admin_path}/config/users)
 ┌─────────────────────────────────────────────────────────────────┐
 │  Users                                                          │
 ├─────────────────────────────────────────────────────────────────┤
@@ -52182,7 +53174,7 @@ Admin clicks "Invite New User"
 │                                                                 │
 │  Invite URL (share with new user):                              │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ https://app.example.com/auth/invite/user/abc123...      │    │
+│  │ https://app.example.com/server/auth/invite/user/abc123...      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │  [Copy URL]                                                     │
 │                                                                 │
@@ -52205,29 +53197,38 @@ Admin clicks "Invite New User"
 - Default expiry: 24 hours (configurable: 1h, 6h, 24h, 48h, 7d)
 - Only Server Admin can generate invites (users cannot invite other users)
 
-**Private mode behavior:**
-- `/auth/register` → 404 (no public registration form)
-- `/auth/invite/user/{token}` → Password setup form (if valid token)
+**Invite mode behavior:**
+- `/server/auth/register` → 404 (no public registration form)
+- `/server/auth/invite/user/{token}` → Password setup form (if valid token)
 - Only Server Admin can initiate user creation
 - Use for: Internal tools, controlled access, enterprise deployments
 
+### Mode: admin_only
+
+**Only Server Admin can create the account record directly. No invite-only self-service flow exists.**
+
+- `/server/auth/register` → 404 (no public registration form)
+- Server Admin creates the user at `/server/{admin_path}/config/users`
+- System generates a one-time activation/password-setup link for that specific user
+- If SMTP is enabled, send the activation link automatically; otherwise show a copyable link for manual delivery
+- Admin still cannot set the user's password
+- Existing users can still log in
+- Use for: Enterprise provisioning, tightly controlled internal systems
+
 ### Mode: disabled
 
-**No public registration. Admin can still create users via invite.**
+**No new regular-user accounts can be created.**
 
-- `/auth/register` → 404 (no public registration form)
-- `/auth/invite/user/{token}` → Works (admin-invited users can set password)
-- Admin creates users same as private mode (invite only)
+- `/server/auth/register` → 404 (no public registration form)
+- New `/server/auth/invite/user/{token}` links are not issued
+- Existing unused invite/activation links must be rejected once mode is set to `disabled`
+- Server Admin cannot create new regular-user accounts through the normal UI/API
 - Existing users can still log in
-- Use for: Closed systems where admin controls all user creation
-
-**Note:** `disabled` and `private` both require admin invite. The difference:
-- `private`: Explicitly invite-only (clear to users)
-- `disabled`: Registration feature hidden entirely (users don't know it exists)
+- Use for: Closed systems where account creation is frozen or intentionally unavailable
 
 ### Server Setup to User Registration Workflow
 
-**When multi-user is enabled, registration defaults to `public`. Server is always fully functional.**
+**When multi-user is enabled, registration defaults to `open`. Server is always fully functional.**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -52242,26 +53243,28 @@ Admin clicks "Invite New User"
 │  2. ADMIN COMPLETES SETUP WIZARD (PART 17)                               │
 │     └── Creates Server Admin account                                     │
 │     └── Optionally enables multi-user (Step 5)                           │
-│         └── If enabled: registration defaults to "public"                │
+│         └── If enabled: registration defaults to "open"                  │
 │     └── Status: FULLY FUNCTIONAL ✓                                       │
 │                                                                          │
 │  3. ADMIN OPTIONALLY CHANGES REGISTRATION MODE                           │
-│     └── /{admin_path}/server/settings → registration mode                       │
-│     └── Mode: public (default) | private | disabled                      │
-│     └── Admin can ALWAYS invite users (mode controls public reg only)    │
+│     └── /server/{admin_path}/config/settings → registration mode                       │
+│     └── Mode: open (default) | invite | admin_only | disabled            │
+│     └── Mode controls how NEW regular-user accounts are created          │
 │                                                                          │
 │  4. USER CREATION METHODS                                                │
-│     ┌────────────────────────────────────────────────────────────────┐   │
-│     │ Method              │ public │ private │ disabled │            │   │
-│     ├────────────────────────────────────────────────────────────────┤   │
-│     │ /auth/register      │   ✓    │    ✗    │    ✗     │ (public)   │   │
-│     │ Admin invite→user   │   ✓    │    ✓    │    ✓     │ (always)   │   │
-│     └────────────────────────────────────────────────────────────────┘   │
+│     ┌────────────────────────────────────────────────────────────────────────┐ │
+│     │ Method                │ open │ invite │ admin_only │ disabled │      │ │
+│     ├────────────────────────────────────────────────────────────────────────┤ │
+│     │ /server/auth/register        │  ✓   │   ✗    │     ✗      │    ✗     │      │ │
+│     │ Admin invite→user     │  ✓   │   ✓    │     ✗      │    ✗     │      │ │
+│     │ Admin create→activate │  ✓   │   ✗    │     ✓      │    ✗     │      │ │
+│     └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                          │
-│  5. ADMIN INVITE FLOW (same as Server Admin - see PART 17)               │
-│     └── Admin sets username → generates one-time invite URL              │
-│     └── Admin shares URL with user                                       │
-│     └── User clicks link → sets own password (admin cannot set)          │
+│  5. ADMIN-CONTROLLED FLOWS                                               │
+│     └── invite: Admin sets username → generates one-time invite URL      │
+│     └── admin_only: Admin creates account → system generates activation  │
+│        URL/email                                                          │
+│     └── User opens link → sets own password (admin cannot set)           │
 │     └── Account active                                                   │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -52269,33 +53272,31 @@ Admin clicks "Invite New User"
 
 **Key Points:**
 
-| State | Public Registration | Admin Invite | Server Functional? |
-|-------|--------------------|--------------|--------------------|
-| Fresh server (no setup) | N/A | N/A | **YES** |
-| Multi-user feature disabled | N/A | N/A | **YES** |
-| Multi-user enabled, mode=public | ✓ Open | ✓ Yes | **YES** |
-| Multi-user enabled, mode=private | ✗ No | ✓ Yes | **YES** |
-| Multi-user enabled, mode=disabled | ✗ No | ✓ Yes | **YES** |
+| State | Public Registration | Admin Invite | Direct Admin Create | Server Functional? |
+|-------|--------------------|--------------|---------------------|--------------------|
+| Fresh server (no setup) | N/A | N/A | N/A | **YES** |
+| Multi-user feature disabled | N/A | N/A | N/A | **YES** |
+| Multi-user enabled, mode=open | ✓ Open | ✓ Yes | ✓ Yes | **YES** |
+| Multi-user enabled, mode=invite | ✗ No | ✓ Yes | ✗ No | **YES** |
+| Multi-user enabled, mode=admin_only | ✗ No | ✗ No | ✓ Yes | **YES** |
+| Multi-user enabled, mode=disabled | ✗ No | ✗ No | ✗ No | **YES** |
 
 **All registration modes are VALID operational states, NOT errors.**
 
-**Admin can ALWAYS create users via invite (regardless of mode):**
-- Admin sets username → generates invite URL
-- User clicks invite → sets own password (admin cannot set passwords)
-
-**Mode only controls PUBLIC registration:**
-- `public`: Anyone can self-register + admin can invite
-- `private`: Admin invite only (no public form)
-- `disabled`: Admin invite only (registration hidden entirely)
+**Mode summary:**
+- `open`: Anyone can self-register; admins may also invite or provision directly
+- `invite`: Only admin-issued invite links/codes create accounts
+- `admin_only`: Only direct admin-created accounts are allowed
+- `disabled`: No new regular-user accounts are allowed
 
 ## Regular User Behavior
 
 | Route | Regular User Access |
 |-------|---------------------|
-| `/{admin_path}/*` | NO - 403 Forbidden (unless user has admin role) |
+| `/server/{admin_path}/*` | NO - 403 Forbidden (unless user has admin role) |
 | `/users/*` | Full access to own profile, settings, tokens |
-| `/auth/login` | Login page |
-| `/auth/logout` | Logout |
+| `/server/auth/login` | Login page |
+| `/server/auth/logout` | Logout |
 | Public routes | Authenticated view (may show user-specific content) |
 
 **Regular User Accounts:**
@@ -52440,6 +53441,7 @@ var UsernameBlocklist = []string{
     "firewall", "localhost", "local", "internal", "external", "public",
     "private", "network", "database", "db", "cache", "redis", "mysql",
     "postgres", "mongodb", "elastic", "nginx", "apache", "docker",
+    "healthz", "metrics", "swagger",
 
     // Application & Service Names
     "app", "application", "bot", "robot", "crawler", "spider", "scraper",
@@ -52466,11 +53468,13 @@ var UsernameBlocklist = []string{
     "true", "false", "test", "testing", "debug", "demo", "example",
     "sample", "temp", "temporary", "tmp", "backup", "archive", "log",
     "logs", "audit", "report", "reports", "analytics", "stats", "status",
+    "about", "contact", "privacy", "terms", "docs",
 
     // API & Endpoints
     "api", "rest", "graphql", "grpc", "websocket", "ws", "wss", "http",
     "https", "endpoint", "endpoints", "route", "routes", "path", "url",
     "uri", "callback", "hook", "hooks", "event", "events", "stream",
+    "autodiscover",
 
     // Content & Media
     "blog", "news", "article", "articles", "post", "posts", "page", "pages",
@@ -52513,14 +53517,15 @@ var UsernameBlocklist = []string{
     "webmaster", "hostmaster", "abuse", "spam", "junk", "trash",
 
     // Project-specific (dynamic)
-    "caspbx", "casapps",
+    "{project_name}", "{project_org}",
 }
 ```
 
 **Blocklist Notes:**
-- Server admin account is exempt from this blocklist
+- Server admin accounts are exempt from this blocklist, including the initial/primary server admin
 - Blocklist is checked case-insensitively
 - Also blocks usernames that contain blocklisted words as substrings for critical terms (admin, root, system, mod, official, verified)
+- The username blocklist MUST cover all reserved public and operational route names that would collide with top-level or server-owned paths
 - Custom blocklist entries can be added via config
 
 ### Username & Email Rules
@@ -52558,7 +53563,7 @@ func DetectIdentifierType(input string) string {
 
 **API Request:**
 
-`POST /api/{api_version}/auth/login`
+`POST /api/{api_version}/server/auth/login`
 
 Identifier can be: username, user_id, or email.
 
@@ -52738,12 +53743,14 @@ func GetUserProfile(requestingUserID, targetUserID int) (*User, error) {
 
 | Rule | Value |
 |------|-------|
-| **Allowed formats** | PNG, JPG, JPEG, GIF, BMP, WEBP, SVG, ICO |
+| **Allowed formats** | PNG, JPG, JPEG, GIF, BMP, WEBP, ICO |
 | **Max file size** | 2 MB (upload) |
 | **Min dimensions** | 64x64 pixels |
 | **Max dimensions** | 1024x1024 pixels (resized if larger) |
 | **Aspect ratio** | Square preferred (auto-cropped if not) |
 | **Storage sizes** | Original, 256x256, 128x128, 64x64, 32x32 |
+
+**Security rule:** project-owned static assets may use SVG, but user-uploaded avatars and external avatar URLs MUST NOT use SVG. User-controlled SVG is active browser content; keep avatars raster-only unless the project explicitly sanitizes and rasterizes SVG at ingest, then serves only raster derivatives.
 
 **Avatar Validation Code:**
 ```go
@@ -52753,7 +53760,6 @@ var AllowedImageTypes = map[string]bool{
     "image/gif":     true,
     "image/bmp":     true,
     "image/webp":    true,
-    "image/svg+xml": true,
     "image/x-icon":  true,
     "image/vnd.microsoft.icon": true,
 }
@@ -52887,7 +53893,7 @@ PATCH /api/{api_version}/users/avatar
 
 **Admin Password Reset Flow:**
 ```
-Admin Panel (/{admin_path}/server/moderation/users/{id})
+Admin Panel (/server/{admin_path}/config/moderation/users/{id})
 ┌─────────────────────────────────────────────────────────────┐
 │  User: johndoe                                              │
 │  Email: j***n@e***.com (masked)                             │
@@ -52942,8 +53948,8 @@ User receives: "Password reset requested by administrator.
 **Generic Errors (NEVER reveal existence):**
 | Scenario | Error Message |
 |----------|---------------|
-| Username/email taken | `Unable to complete registration. [Forgot credentials?](/auth/password/forgot)` |
-| Login failed (any reason) | `Invalid credentials. [Forgot password?](/auth/password/forgot)` |
+| Username/email taken | `Unable to complete registration. [Forgot credentials?](/server/auth/password/forgot)` |
+| Login failed (any reason) | `Invalid credentials. [Forgot password?](/server/auth/password/forgot)` |
 | Reset request | `If an account exists, instructions have been sent.` |
 
 **Why Generic Errors?**
@@ -53003,7 +54009,7 @@ User receives: "Password reset requested by administrator.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Admin Panel MFA Setup (`/{admin_path}/account/security`):**
+**Admin Panel MFA Setup (`/server/{admin_path}/account/security`):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -53028,7 +54034,7 @@ User receives: "Password reset requested by administrator.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**TOTP Setup Flow (`/{admin_path}/account/security/totp/setup`):**
+**TOTP Setup Flow (`/server/{admin_path}/account/security/totp/setup`):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -53054,7 +54060,7 @@ User receives: "Password reset requested by administrator.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Passkey Setup Flow (`/{admin_path}/account/security/passkey/setup`):**
+**Passkey Setup Flow (`/server/{admin_path}/account/security/passkey/setup`):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -53100,10 +54106,10 @@ User receives: "Password reset requested by administrator.
 **What CAN be recovered:**
 | User Knows | User Forgot | Recovery Method |
 |------------|-------------|-----------------|
-| Email | Password | `/auth/password/forgot` → email link → set new password |
-| Username | Password | `/auth/password/forgot` → email link → set new password |
-| Email + Password | 2FA code | `/auth/login` → `/auth/recovery/use` → disable/reset 2FA |
-| Username + Password | 2FA code | `/auth/login` → `/auth/recovery/use` → disable/reset 2FA |
+| Email | Password | `/server/auth/password/forgot` → email link → set new password |
+| Username | Password | `/server/auth/password/forgot` → email link → set new password |
+| Email + Password | 2FA code | `/server/auth/login` → `/server/auth/recovery/use` → disable/reset 2FA |
+| Username + Password | 2FA code | `/server/auth/login` → `/server/auth/recovery/use` → disable/reset 2FA |
 
 **What CANNOT be recovered:**
 | Scenario | Result |
@@ -53124,11 +54130,11 @@ The Server Admin (administrator with access to the server/binary) has ONE recove
 
 | Scenario | Recovery Method |
 |----------|-----------------|
-| Admin forgot password | `caspbx --maintenance setup` |
-| Admin lost API token | `caspbx --maintenance setup` |
-| Admin lost recovery keys | `caspbx --maintenance setup` |
-| Admin lost 2FA + no recovery keys | `caspbx --maintenance setup` |
-| Admin lost everything | `caspbx --maintenance setup` |
+| Admin forgot password | `{project_name} --maintenance setup` |
+| Admin lost API token | `{project_name} --maintenance setup` |
+| Admin lost recovery keys | `{project_name} --maintenance setup` |
+| Admin lost 2FA + no recovery keys | `{project_name} --maintenance setup` |
+| Admin lost everything | `{project_name} --maintenance setup` |
 
 **This requires:**
 - Console/SSH access to the server to run the binary
@@ -53153,7 +54159,7 @@ See **PART 22: BACKUP & RESTORE → Admin Recovery Command** for full details.
 **Flow:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  /auth/login                                                │
+│  /server/auth/login                                                │
 ├─────────────────────────────────────────────────────────────┤
 │  Username/Email: [john@example.com        ]                 │
 │  Password:       [••••••••••••            ]                 │
@@ -53231,11 +54237,11 @@ See **PART 22: BACKUP & RESTORE → Admin Recovery Command** for full details.
 
 **Recovery Key API Flow:**
 ```
-POST /api/{api_version}/auth/login
+POST /api/{api_version}/server/auth/login
   → { "identifier": "john@example.com", "password": "secretpassword" }
   ← { "ok": true, "data": { "requires_2fa": true, "session_token": "temp_xxx" } }
 
-POST /api/{api_version}/auth/recovery/use
+POST /api/{api_version}/server/auth/recovery/use
   → { "session_token": "temp_xxx", "recovery_key": "a1b2c3d4-e5f6" }
   ← { "ok": true, "data": { "token": "auth_xxx", "remaining_keys": 9 } }
 
@@ -53271,7 +54277,7 @@ server:
           client_id: "{client_id}"
           client_secret: "{client_secret}"
           scopes: ["openid", "profile", "email", "groups"]
-          # Auto-create user on first login
+          # Auto-create regular user on first login (ONLY if multi-user is enabled)
           auto_register: true
           # Map OIDC claims to user fields
           claims_mapping:
@@ -53280,41 +54286,210 @@ server:
             name: "name"
             # Claim containing group memberships
             groups: "groups"
+          # Username confirmation behavior for new external accounts
+          username_resolution:
+            mode: prompt_on_first_login   # prompt_on_first_login | prompt_if_conflict | reject_if_conflict
+            allow_custom_on_first_login: true
           # Map external groups to Server Admin role
           # Users in these groups become Server Admins
           admin_groups:
             - "admins"
+            - "administrators"
             - "server-admins"
             - "app-administrators"
+            - "platform-admins"
+            - "infra-admins"
+            - "ops-admins"
           # Map external groups to user roles (if multi-user enabled)
           role_mapping:
-            admin: ["admins", "app-administrators"]
-            moderator: ["moderators", "support-staff"]
-            user: ["users", "members"]
+            admin: ["admins", "administrators", "app-admins", "app-administrators", "platform-admins"]
+            moderator: ["moderators", "support", "support-staff", "helpdesk", "reviewers"]
+            user: ["users", "user", "members", "member", "employees", "staff", "developers", "engineering"]
 
-    ldap:
-      enabled: false
-      server: "ldap://ldap.example.com:389"
-      bind_dn: "cn=readonly,dc=example,dc=com"
-      bind_password: "{ldap_password}"
-      base_dn: "dc=example,dc=com"
-      user_filter: "(uid={username})"
-      # Map LDAP attributes to user fields
-      attributes:
-        username: "uid"
-        email: "mail"
-        name: "cn"
-        groups: "memberOf"
-      # Map LDAP groups to Server Admin role
-      admin_groups:
-        - "cn=admins,ou=groups,dc=example,dc=com"
-        - "cn=server-admins,ou=groups,dc=example,dc=com"
-      # Map LDAP groups to user roles (if multi-user enabled)
-      role_mapping:
-        admin: ["cn=admins,ou=groups,dc=example,dc=com"]
-        moderator: ["cn=moderators,ou=groups,dc=example,dc=com"]
-        user: ["cn=users,ou=groups,dc=example,dc=com"]
+      ldap:
+        enabled: false
+        providers:
+          - name: corp
+            display_name: "Corporate LDAP"
+            server: "ldap://ldap.example.com:389"
+            bind_dn: "cn=readonly,dc=example,dc=com"
+            bind_password: "{ldap_password}"
+            base_dn: "dc=example,dc=com"
+            user_filter: "(uid={username})"
+            # Auto-create regular user on first login (ONLY if multi-user is enabled)
+            auto_register: true
+            # Map LDAP attributes to user fields
+            attributes:
+              username: "uid"
+              email: "mail"
+              name: "cn"
+              groups: "memberOf"
+            username_resolution:
+              mode: prompt_on_first_login   # prompt_on_first_login | prompt_if_conflict | reject_if_conflict
+              allow_custom_on_first_login: true
+            # Map LDAP groups to Server Admin role
+            admin_groups:
+              - "cn=admins,ou=groups,dc=example,dc=com"
+              - "cn=administrators,ou=groups,dc=example,dc=com"
+              - "cn=server-admins,ou=groups,dc=example,dc=com"
+              - "cn=app-administrators,ou=groups,dc=example,dc=com"
+              - "cn=platform-admins,ou=groups,dc=example,dc=com"
+              - "cn=infra-admins,ou=groups,dc=example,dc=com"
+            # Map LDAP groups to user roles (if multi-user enabled)
+            role_mapping:
+              admin:
+                - "cn=admins,ou=groups,dc=example,dc=com"
+                - "cn=administrators,ou=groups,dc=example,dc=com"
+                - "cn=app-admins,ou=groups,dc=example,dc=com"
+                - "cn=app-administrators,ou=groups,dc=example,dc=com"
+              moderator:
+                - "cn=moderators,ou=groups,dc=example,dc=com"
+                - "cn=support,ou=groups,dc=example,dc=com"
+                - "cn=support-staff,ou=groups,dc=example,dc=com"
+                - "cn=helpdesk,ou=groups,dc=example,dc=com"
+              user:
+                - "cn=users,ou=groups,dc=example,dc=com"
+                - "cn=members,ou=groups,dc=example,dc=com"
+                - "cn=employees,ou=groups,dc=example,dc=com"
+                - "cn=staff,ou=groups,dc=example,dc=com"
+                - "cn=developers,ou=groups,dc=example,dc=com"
+                - "cn=engineering,ou=groups,dc=example,dc=com"
 ```
+
+### OIDC Provider Expectations & Common Providers
+
+**OIDC support applies to BOTH regular users and Server Admins.** The difference is role mapping:
+- regular users: created/synced via `auto_register`, `claims_mapping`, and `role_mapping`
+- server admins: granted by `admin_groups`
+
+### External Identity Provider Requirements
+
+- External identity support for Server Admins MUST include BOTH OIDC and LDAP
+- OIDC and LDAP MUST each support multiple named providers
+- All OIDC and LDAP providers MUST be manageable from the Admin WebUI under `/server/{admin_path}/config/security/auth/*`
+- If `server.users.enabled: true`, the same provider definitions MUST also apply the regular-user auth rules (`auto_register`, username resolution, and `role_mapping`)
+- If `server.users.enabled: false`, those same providers remain valid for Server Admin auth only
+- Provider identity is part of the stored source value: `oidc:{provider}` or `ldap:{provider}`
+
+**Why regular-user OIDC/LDAP support matters:** organizations that already run OIDC/LDAP expect the app to plug into their existing identity infrastructure instead of forcing a second local account system. When multi-user mode is enabled, the project MUST support regular-user OIDC/LDAP login so the app fits into the operator's existing SSO/directory environment.
+
+**Common OIDC providers to support cleanly:**
+
+| Provider Type | Typical Username Claim | Typical Email Claim | Typical Groups / Roles Source | Notes |
+|--------------|------------------------|---------------------|-------------------------------|-------|
+| **Google** | `email` or hosted-domain-safe localpart derived from email | `email` | Usually none by default | Consumer Google usually has no groups claim; do NOT invent admin mapping |
+| **GitHub** | `preferred_username` if provided by broker, else `login`-style mapped username | `email` (may be absent/private) | Usually none unless brokered | Direct GitHub OIDC often lacks stable groups; use only through a broker if group-based admin is required |
+| **Keybase / brokered social identity** | Provider-specific; usually broker-mapped to `preferred_username` or another explicit claim | Provider/broker-specific | Usually none unless brokered | Treat as generic OIDC through the broker. Do NOT hardcode claim names without explicit mapping |
+| **Keycloak** | `preferred_username` | `email` | `groups` or realm/client roles | Supports both groups and roles; document exact claim used |
+| **Authentik** | `preferred_username` | `email` | `groups` | Common self-hosted default |
+| **Okta / Auth0 / Azure AD / Zitadel / Dex / generic enterprise broker** | `preferred_username`, `upn`, or email-derived fallback | `email` or `mail` | `groups`, `roles`, or provider-specific claim | Must be explicitly mapped in config |
+
+**OIDC provider rules:**
+- The project MUST NOT assume every provider exposes the same claims
+- `claims_mapping` is REQUIRED whenever the provider does not cleanly expose `preferred_username`, `email`, `name`, and `groups`
+- If group-based admin access is needed, the exact claim carrying group/role membership MUST be documented in config
+- Providers without a trustworthy username claim MUST derive an initial candidate username from email localpart or another documented stable field, then run normal collision checks
+- If a provider does not expose email, the project MUST document whether email is optional, separately collected, or that provider is unsupported
+
+### Starter Group Mapping Presets
+
+**The setup UI SHOULD offer starter presets for OIDC and LDAP group mapping so a typical enterprise/provider setup works with minimal manual editing.**
+
+**Security rule:** these are starter presets, not an excuse to auto-grant broad admin access blindly. Operators MUST still be able to review and trim the mapped groups before saving.
+
+| Mapping Type | Typical OIDC Group Names | Typical LDAP Group DNs / Names |
+|--------------|--------------------------|--------------------------------|
+| **Server Admin** | `admins`, `administrators`, `server-admins`, `app-administrators`, `platform-admins`, `infra-admins`, `ops-admins` | `cn=admins,...`, `cn=administrators,...`, `cn=server-admins,...`, `cn=app-administrators,...`, `cn=platform-admins,...`, `cn=infra-admins,...` |
+| **App Admin Role** | `admins`, `administrators`, `app-admins`, `app-administrators`, `platform-admins` | `cn=admins,...`, `cn=administrators,...`, `cn=app-admins,...`, `cn=app-administrators,...` |
+| **Moderator Role** | `moderators`, `support`, `support-staff`, `helpdesk`, `reviewers` | `cn=moderators,...`, `cn=support,...`, `cn=support-staff,...`, `cn=helpdesk,...`, `cn=reviewers,...` |
+| **User Role** | `users`, `user`, `members`, `member`, `employees`, `staff`, `developers`, `engineering` | `cn=users,...`, `cn=members,...`, `cn=employees,...`, `cn=staff,...`, `cn=developers,...`, `cn=engineering,...` |
+
+**Preset rules:**
+- For OIDC, these names are matched exactly against the configured group/role claim
+- For LDAP, these should be emitted as full DN examples in config, but the setup UI may allow shorthand entry and expand to the configured group base DN
+- Providers that emit roles instead of groups MUST allow the operator to point `claims_mapping.groups` at that roles claim
+- The starter preset is a convenience baseline; custom mappings remain fully supported and canonical
+
+### Common LDAP Mapping Presets
+
+**LDAP MUST support custom mappings, but the template should define the usual defaults clearly.**
+
+| Directory Type | User Filter | Username Attr | Email Attr | Display Name Attr | Groups Attr | Admin Groups Format |
+|----------------|------------|---------------|------------|-------------------|-------------|---------------------|
+| **OpenLDAP** | `(uid={username})` | `uid` | `mail` | `cn` | `memberOf` | Full group DN |
+| **Active Directory** | `(&(objectClass=user)(sAMAccountName={username}))` | `sAMAccountName` | `mail` | `displayName` | `memberOf` | Full group DN |
+| **FreeIPA / 389 DS style** | `(&(objectClass=person)(uid={username}))` | `uid` | `mail` | `cn` | `memberOf` | Full group DN |
+| **Generic POSIX LDAP** | `(uid={username})` | `uid` | `mail` | `cn` | `memberOf` or `isMemberOf` | Full group DN |
+
+**LDAP rules:**
+- The project MUST support overriding every LDAP attribute/filter mapping
+- `admin_groups` MUST use the exact identifier format returned by the configured directory lookup
+- If nested groups are needed (common in AD), the project MUST document whether it resolves nested membership or only direct membership
+- If the LDAP directory does not expose `memberOf`, the project MUST support a documented alternate membership lookup or explicitly state that the provider is unsupported
+
+### OIDC/LDAP Username Resolution for Regular Users
+
+**Regular-user OIDC/LDAP login MUST support a first-login username confirmation step for every new external account, not only conflict cases.**
+
+| Scenario | Required Behavior |
+|----------|-------------------|
+| Provider returns valid unique username claim | Prefill the form with it; user may keep it or edit it before account creation |
+| Username claim missing | Derive a candidate from mapped email/localpart or another documented stable claim, then prefill the form |
+| Candidate starts with `@` | Strip the leading `@` before prefilling |
+| Candidate is an email address | Use the localpart before `@` as the initial prefill |
+| Candidate is reserved | Suggest the same base plus random numeric digits that do not clash, then let the user edit it |
+| Candidate collides with existing user | Suggest the same base plus random numeric digits that do not clash, then let the user edit it |
+| Candidate collides with existing org slug | Suggest the same base plus random numeric digits that do not clash, then let the user edit it |
+| Custom username is invalid/reserved/taken | Show validation error and require another choice or another generated suggestion |
+| `auto_register: false` | Do NOT create account automatically; require pre-created local account linked by `external_id` or explicit admin provisioning |
+
+**First-login rule for regular users:**
+- If external authentication is creating a new local user record, complete external authentication first, store the identity in a short-lived pre-auth session, then send the user to `/server/auth/external/username`
+- The form MUST be prefilled with a normalized candidate derived from the mapped username claim first, then email localpart or another documented stable claim if needed
+- Normalization MUST strip a leading `@`; if the candidate is an email address, use only the localpart before `@`
+- If the normalized candidate is blocked or collides, the server MUST generate an available suggestion by appending random numeric digits, but MUST still show the final suggestion to the user before account creation
+- The username-selection step MUST use the same global namespace validation as local registration (`reserved` + existing user + existing org collision)
+- The chosen username is written once when the local account is created; after that, OIDC/LDAP login matches by `external_id`, not by re-deriving username every time
+- The project MUST NOT silently append random digits or mutate usernames without showing the user the final result first
+
+### OIDC/LDAP Username Resolution for Server Admins
+
+**OIDC/LDAP-backed Server Admins MUST support the same first-login username confirmation step for every new external admin account, not only conflict cases.**
+
+| Scenario | Required Behavior |
+|----------|-------------------|
+| Provider returns valid unique admin username | Prefill the form with it; admin may keep it or edit it before account creation |
+| Username claim missing | Derive a candidate from mapped email/localpart or another documented stable claim, then prefill the form |
+| Candidate starts with `@` | Strip the leading `@` before prefilling |
+| Candidate is an email address | Use the localpart before `@` as the initial prefill |
+| Candidate collides with existing Server Admin username | Suggest the same base plus random numeric digits that do not clash, then let the admin edit it |
+| Candidate collides with reserved admin-route child (for example `config`) | Suggest the same base plus random numeric digits that do not clash, then let the admin edit it |
+| Candidate fails admin username validation | Show validation error and require another choice or another generated suggestion |
+
+**First-login rule for Server Admins:**
+- If external authentication is creating a new local admin record, complete external authentication first, store the identity in a short-lived pre-auth session, then send the admin to `/server/auth/external/username`
+- The form MUST be prefilled with a normalized candidate derived from the mapped username claim first, then email localpart or another documented stable claim if needed
+- Normalization MUST strip a leading `@`; if the candidate is an email address, use only the localpart before `@`
+- If the normalized candidate is blocked or collides, the server MUST generate an available suggestion by appending random numeric digits, but MUST still show the final suggestion to the admin before account creation
+- The username-selection step MUST validate:
+  - no collision with existing admin usernames
+  - no collision with reserved admin-root children such as `config`
+  - the normal syntax/length rules for admin usernames
+- Server Admin usernames remain exempt from the public username blocklist, but they are NOT exempt from route-collision checks
+- The chosen username is written once when the local admin record is created; after that, OIDC/LDAP admin login matches by `external_id`, not by re-deriving username every time
+
+### Local Sync Rules for Regular Users
+
+| Field | Description |
+|-------|-------------|
+| `username` | Final local username (claim-derived or user-chosen on first login) |
+| `password` | Local Argon2id hash. Use a real fallback password hash when local fallback login is supported; otherwise store an unusable random secret so password login stays disabled for that external-only account |
+| `source` | `local`, `oidc:{provider}`, `ldap:{provider}` |
+| `external_id` | Stable provider subject / LDAP unique ID |
+| `groups` | Cached external groups/roles from last successful login |
+| `last_sync` | Last successful OIDC/LDAP sync timestamp |
+
+**Matching rule:** for OIDC/LDAP-backed regular users, the stable identity key is `external_id` + provider source, NOT mutable username/email.
 
 ### Server Admin Group Mapping
 
@@ -53334,16 +54509,32 @@ server:
 5. On next login, group membership is re-evaluated
 6. If user is removed from all `admin_groups` → admin access revoked
 
-**Admin Panel (`/{admin_path}/server/security/auth`):**
+**Admin auth scope rule:**
+- OIDC and LDAP can authenticate regular users and Server Admins through the same `/server/auth/*` surface
+- Server Admin access is NEVER inferred from normal user role mapping alone
+- Server Admin access requires `admin_groups` match (or an explicitly provisioned local admin account)
+
+**Admin Panel (`/server/{admin_path}/config/security/auth`):**
+
+| Route | Purpose |
+|-------|---------|
+| `/server/{admin_path}/config/security/auth` | Authentication overview, shared auth settings, and provider summaries |
+| `/server/{admin_path}/config/security/auth/oidc` | List/manage OIDC providers |
+| `/server/{admin_path}/config/security/auth/oidc/new` | Add OIDC provider |
+| `/server/{admin_path}/config/security/auth/oidc/{provider}` | Edit, test, enable/disable, or remove one OIDC provider |
+| `/server/{admin_path}/config/security/auth/ldap` | List/manage LDAP providers |
+| `/server/{admin_path}/config/security/auth/ldap/new` | Add LDAP provider |
+| `/server/{admin_path}/config/security/auth/ldap/{provider}` | Edit, test, enable/disable, or remove one LDAP provider |
 
 | Element | Type | Description |
 |---------|------|-------------|
-| OIDC Providers | Section | List of configured OIDC providers |
-| LDAP Configuration | Section | LDAP server settings |
-| Admin Groups | Tag input | Groups that grant Server Admin access |
-| Role Mapping | Table | Map external groups to application roles |
-| Test Connection | Button | Test OIDC/LDAP connectivity |
-| Test Group Mapping | Button | Test user's groups and resulting role |
+| OIDC Providers | Section | List of configured OIDC providers with add/edit/remove/test actions |
+| LDAP Providers | Section | List of configured LDAP providers with add/edit/remove/test actions |
+| Applies To | Readonly summary | Server Admin auth always; regular-user auth too when multi-user mode is enabled |
+| Admin Groups | Tag input | Per-provider groups that grant Server Admin access |
+| Role Mapping | Table | Per-provider mapping from external groups to application roles |
+| Test Connection | Button | Test one selected OIDC/LDAP provider |
+| Test Group Mapping | Button | Test one selected provider's groups and resulting role |
 
 **Sane Defaults:**
 - `admin_groups`: Empty (no external groups granted admin by default)
@@ -53369,22 +54560,22 @@ server:
     enabled: false
 
     registration:
-      # Registration mode: public (default), private, disabled
-      # - public: Anyone can register (open registration)
-      # - private: Admin invite only (no public registration)
-      # - disabled: Admin invite only (registration hidden entirely)
-      # Note: Admin can ALWAYS create users via invite (see PART 34)
-      mode: public
+      # Registration mode: open (default), invite, admin_only, disabled
+      # - open: Anyone can self-register
+      # - invite: Only admin-issued invite links/codes can create accounts
+      # - admin_only: Only Server Admin can create the account record directly
+      # - disabled: No new regular-user accounts can be created
+      mode: open
 
-      # Email verification (applies to public mode)
+      # Email verification (applies to open mode)
       require_email_verification: true
 
-      # Email domain restrictions (applies to public mode)
+      # Email domain restrictions (applies to open mode)
       allowed_domains: []      # Empty = all domains allowed
       blocked_domains: []      # Block specific domains
 
-      # Invite settings (admin-generated invites)
-      invite_expiration_days: 7     # How long invite links are valid
+      # Invite / activation settings (admin-generated links)
+      invite_expiration_days: 7     # How long invite or activation links are valid
 
     roles:
       # Available roles
@@ -53465,30 +54656,40 @@ server:
 
 **See PART 34 "Registration Modes" for complete details.**
 
-| Mode | Public Reg | Admin Invite | Default |
-|------|------------|--------------|---------|
-| **public** | ✓ Anyone | ✓ Always | **YES** |
-| **private** | ✗ No | ✓ Always | No |
-| **disabled** | ✗ No | ✓ Always | No |
+| Mode | Public Reg | Admin Invite | Direct Admin Create | Default |
+|------|------------|--------------|---------------------|---------|
+| **open** | ✓ Anyone | ✓ Allowed | ✓ Allowed | **YES** |
+| **invite** | ✗ No | ✓ Required | ✗ No | No |
+| **admin_only** | ✗ No | ✗ No | ✓ Required | No |
+| **disabled** | ✗ No | ✗ No | ✗ No | No |
 
-**Key rule:** Admin can ALWAYS create users via invite. Mode only controls public registration.
+**Key rule:** Registration mode defines how new regular-user accounts are created. Profile visibility remains a separate setting.
 
 ### Registration Flow
 
-**Public Mode:**
+**Open Mode:**
 ```
-1. User visits /auth/register
+1. User visits /server/auth/register
 2. Submits form (username, email, password)
 3. Email verification sent (if enabled)
 4. Account active
 ```
 
-**Private/Disabled Mode (Admin Invite):**
+**Invite Mode:**
 ```
-1. Admin creates invite at /{admin_path}/server/users (sets username)
+1. Admin creates invite at /server/{admin_path}/config/users (sets username)
 2. Admin shares invite URL with new user
 3. User clicks link → sets own password (admin cannot set)
 4. Account active
+```
+
+**Admin-Only Mode:**
+```
+1. Admin creates the user record at /server/{admin_path}/config/users
+2. System generates a one-time activation/password-setup link
+3. Link is emailed automatically (if SMTP enabled) or copied manually
+4. User clicks link → sets own password (admin cannot set)
+5. Account active
 ```
 
 ### Authentication Methods
@@ -53532,7 +54733,7 @@ server:
 | `bio` | String | No | Yes | Yes | Short biography (max 500 chars) |
 | `location` | String | No | Yes | Yes | Location (free text) |
 | `website` | String | No | Yes | Yes | Personal website URL |
-| `visibility` | Enum | Yes | Yes | N/A | `public` (default), `private` |
+| `visibility` | Enum | Yes | Yes | N/A | `public` (default), `private` for the org/team profile only |
 | `timezone` | String | No | Yes | No | IANA timezone (e.g., `America/New_York`) |
 | `language` | String | No | Yes | No | Preferred language (e.g., `en`, `es`) |
 | `role` | String | Yes | No | No | User role (set by admin) |
@@ -53895,7 +55096,7 @@ PATCH /api/{api_version}/users/settings
 
 ## Admin Panel
 
-### /{admin_path}/server/moderation/users (User Moderation)
+### /server/{admin_path}/config/moderation/users (User Moderation)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -53905,7 +55106,7 @@ PATCH /api/{api_version}/users/settings
 | Disable/Enable | Toggle | Temporarily disable account |
 | Revoke sessions | Button | Log user out everywhere |
 
-### /{admin_path}/server/moderation/users/{id} (User Detail)
+### /server/{admin_path}/config/moderation/users/{id} (User Detail)
 
 | Section | Contents |
 |---------|----------|
@@ -53914,7 +55115,7 @@ PATCH /api/{api_version}/users/settings
 | Activity | Login history, API usage |
 | Actions | Disable, delete, impersonate |
 
-### /{admin_path}/server/roles (Role Management)
+### /server/{admin_path}/config/roles (Role Management)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -53923,7 +55124,7 @@ PATCH /api/{api_version}/users/settings
 | Edit permissions | Checkboxes | Set role permissions |
 | Delete role | Button | Remove role (reassign users first) |
 
-### /{admin_path}/server/users/invites (User Invitation Codes)
+### /server/{admin_path}/config/users/invites (User Invitation Codes)
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -53940,13 +55141,13 @@ PATCH /api/{api_version}/users/settings
 
 | Rule | Description |
 |------|-------------|
-| **Scoped** | Routes grouped by scope: `/auth`, `/user`, `/org`, `/admin` |
+| **Scoped** | Routes grouped by scope: `/server`, `/server/auth`, `/users`, `/orgs`, `/server/{admin_path}` |
 | **Mirrored** | Web (`/`) and API (`/api/{api_version}/`) use same structure |
 | **Intuitive** | Simple, predictable paths |
 | **Params over queries** | Use path params, limit query params to defined cases |
 | **Duplicated when needed** | Same resource may exist in multiple scopes |
-| **Auth under /auth/** | NEVER `/login`, `/register`, `/password/*` at root - ALWAYS `/auth/login`, `/auth/register`, `/auth/password/*`, etc. |
-| **Admin scoped** | `/{admin_path}/**` requires authenticated admin - unauthenticated flows (invites) go through `/auth/` |
+| **Auth under /server/auth/** | NEVER `/login`, `/register`, `/password/*` at root - ALWAYS `/server/auth/login`, `/server/auth/register`, `/server/auth/password/*`, etc. |
+| **Admin scoped** | `/server/{admin_path}/**` requires authenticated admin - unauthenticated flows (invites) go through `/server/auth/` |
 
 **Note:** `{api_version}` defaults to `v1` but is configurable via `server.api_version` in server.yml. Do not hardcode `v1` in code.
 
@@ -53964,11 +55165,11 @@ PATCH /api/{api_version}/users/settings
 |-------|-----|-----|-------------|
 | Public | `/**` | `/api/{api_version}/**` | Public resources, unauthenticated (project-specific) |
 | Server Pages | `/server/` | `/api/{api_version}/server/` | Public pages (about, help, contact, privacy, etc.) |
-| Auth | `/auth/` | `/api/{api_version}/auth/` | Authentication flows |
+| Auth | `/server/auth/` | `/api/{api_version}/server/auth/` | Authentication flows |
 | Users | `/users/` | `/api/{api_version}/users/` | User resources |
 | Orgs | `/orgs/` | `/api/{api_version}/orgs/` | Organization resources |
-| Server Admin | `/{admin_path}/` | `/api/{api_version}/{admin_path}/` | Admin panel |
-| Server Settings | `/{admin_path}/server/` | `/api/{api_version}/{admin_path}/server/` | Server configuration within admin |
+| Server Admin | `/server/{admin_path}/` | `/api/{api_version}/server/{admin_path}/` | Admin panel |
+| Server Settings | `/server/{admin_path}/config/` | `/api/{api_version}/server/{admin_path}/config/` | Server configuration within admin |
 
 ### Default Auth by Scope (Canonical Rule)
 
@@ -53981,11 +55182,11 @@ PATCH /api/{api_version}/users/settings
 | `None` | nothing | n/a | — public route |
 | `Session` | session cookie (browser) | `sessions` table; signed with `cookie_signing_key` (PART 11 → "Cryptographic Keys") | login flow |
 | `Bearer` | `Authorization: Bearer adm_…` / `usr_…` / `org_…` (or agent variants) | `tokens` table; SHA-256 hash compared (PART 11 → "API Token Security") | token creation flow |
-| `Reset token` | one-shot URL param (`/auth/password/reset?token=…`) | hashed in `password_resets` table; single-use; expires per `auth.password_reset_ttl` (default 1h) | `/auth/password/forgot` flow (sent via email) |
-| `Verify token` | one-shot URL param (`/auth/verify/{token}`) | hashed in `email_verifications` table; single-use; expires per `auth.email_verify_ttl` (default 48h) | sent via email on registration / email change |
-| `Invite token` | one-shot URL param (`/auth/invite/{user|server}/{token}`) | hashed in `invites` table; single-use; expires per `invites.ttl` (default 7d) | admin issues from `/{admin_path}/server/admins` (server invite) or user from `/users/orgs/{slug}/invites` (org invite) |
+| `Reset token` | one-shot URL param (`/server/auth/password/reset?token=…`) | hashed in `password_resets` table; single-use; expires per `auth.password_reset_ttl` (default 1h) | `/server/auth/password/forgot` flow (sent via email) |
+| `Verify token` | one-shot URL param (`/server/auth/verify/{token}`) | hashed in `email_verifications` table; single-use; expires per `auth.email_verify_ttl` (default 48h) | sent via email on registration / email change |
+| `Invite token` | one-shot URL param (`/server/auth/invite/{user|server}/{token}`) | hashed in `invites` table; single-use; expires per `invites.ttl` (default 7d) | admin issues from `/server/{admin_path}/config/admins` (server invite) or user from `/users/orgs/{slug}/invites` (org invite) |
 | `Tracking token` | one-shot URL param (`/server/security/report/{tracking_id}?token=…`) | per-tracking-id token; single-use-per-day (researcher can refresh by re-clicking the email link); expires 30 days after report closes | sent via email when researcher submits a security report (PART 11 → "Security Reports") |
-| `Partial-session` | short-lived cookie issued mid-flow (post-password-correct, pre-2FA) | `partial_sessions` table; consumed when 2FA / recovery completes; expires per `auth.partial_session_ttl` (default 5m) | `/auth/login` flow when 2FA is required |
+| `Partial-session` | short-lived cookie issued mid-flow (post-password-correct, pre-2FA) | `partial_sessions` table; consumed when 2FA / recovery completes; expires per `auth.partial_session_ttl` (default 5m) | `/server/auth/login` flow when 2FA is required |
 
 **All one-shot tokens (`Reset`, `Verify`, `Invite`, `Tracking`, `Partial-session`) share the same construction:**
 - Generated from `crypto/rand` (32 bytes → URL-safe base64).
@@ -53998,12 +55199,12 @@ PATCH /api/{api_version}/users/settings
 |-------|-----------|----------|-----------|----------|
 | Public | `/` (project root, project-specific public) | None | `/api/{api_version}/` | None |
 | Server Pages | `/server/*` (about, help, contact, privacy, dpo, terms, docs/swagger, docs/graphql) | None | `/api/{api_version}/server/*` | None |
-| Auth | `/auth/*` (login, register, password/*, verify, invite, etc.) | None (most) | `/api/{api_version}/auth/*` | None (most) |
+| Auth | `/server/auth/*` (login, register, password/*, verify, invite, etc.) | None (most) | `/api/{api_version}/server/auth/*` | None (most) |
 | Users (current) | `/users/*` | Session | `/api/{api_version}/users/*` | Bearer `usr_` token |
 | Users (public profile) | `/users/{user_name}`, `/orgs/{slug}` and `/users/{user_name}/repos`, `/users/{user_name}/followers`, `/users/{user_name}/following` | None* | `/api/{api_version}/users/{user_name}`, `/api/{api_version}/users/{user_name}/repos`, etc. | None* |
 | Orgs (member) | `/orgs/{slug}/*` (non-public) | Session | `/api/{api_version}/orgs/{slug}/*` (non-public) | Bearer `usr_` (member) or `org_` token |
-| Server Admin | `/{admin_path}/*` | Session (admin) | `/api/{api_version}/{admin_path}/*` | Bearer `adm_` token |
-| Server Settings | `/{admin_path}/server/*` | Session (admin) | `/api/{api_version}/{admin_path}/server/*` | Bearer `adm_` token |
+| Server Admin | `/server/{admin_path}/*` | Session (admin) | `/api/{api_version}/server/{admin_path}/*` | Bearer `adm_` token |
+| Server Settings | `/server/{admin_path}/config/*` | Session (admin) | `/api/{api_version}/server/{admin_path}/config/*` | Bearer `adm_` token |
 
 **\* "None\*"** means publicly accessible but with response-field filtering: only fields the resource has marked public are returned. See PART 34 (Multi-User) and PART 35 (Organizations) for the filter rules.
 
@@ -54011,14 +55212,15 @@ PATCH /api/{api_version}/users/settings
 
 | Route | Method | Auth | Notes |
 |-------|--------|------|-------|
-| `/healthz` | GET | None | Frontend health (PART 13) |
+| `/server/healthz` | GET | None | Frontend health (PART 13) |
+| `/healthz` | GET | None | Only when `server.healthz.root.enabled: true`; same handler as `/server/healthz`, never a redirect |
 | `/metrics` | GET | Optional | Prometheus (may be IP-restricted in config) |
-| `/sitemap.xml`, `/robots.txt`, `/favicon.ico`, `/manifest.json`, `/.well-known/*` | GET | None | Conventional web files |
+| `/sitemap.xml`, `/robots.txt`, `/favicon.ico`, `/manifest.json`, `/.well-known/*` | GET | None | Conventional web files; `/.well-known/*` is limited to documented allowlisted entries only |
 | `/server/docs/swagger`, `/server/docs/graphql` | GET | None | Public API docs (HTML) |
-| `/api/swagger`, `/api/{api_version}/swagger` | GET | None | Public OpenAPI JSON spec |
-| `/api/graphql`, `/api/{api_version}/graphql` | POST | None for introspection; per-operation otherwise | GraphQL — see PART 14 GraphQL section for resolver-level auth |
+| `/api/swagger`, `/api/{api_version}/server/swagger` | GET | None | Public OpenAPI JSON spec |
+| `/api/graphql`, `/api/{api_version}/server/graphql` | POST | None for introspection; per-operation otherwise | GraphQL — see PART 14 GraphQL section for resolver-level auth |
 | `/api/autodiscover` | GET | None | Public client/agent auto-config |
-| `/api/{api_version}/healthz` | GET | None | Public JSON health |
+| `/api/{api_version}/server/healthz` | GET | None | Public JSON health |
 | `/api/{api_version}/server/reports/*` | POST | None | Public reports sink (CSP, NEL, deprecation, intervention, crash, error, default). See PART 14 → "Public Reports Scope". Browsers cannot present credentials when emitting these reports. Rate-limited per-IP. |
 | `/server/security/policy` | GET | None | Disclosure policy page (HTML). See PART 11 → "Security Reports". |
 | `/server/security/thanks` | GET | None | Acknowledgments / hall-of-fame (HTML). See PART 11. |
@@ -54026,15 +55228,15 @@ PATCH /api/{api_version}/users/settings
 | `/.well-known/pgp-key.asc` | GET | None | Project PGP public key for security reports. 404 until admin generates a keypair. |
 | `/server/contact?security_id=...` | GET / POST | None — but the `security_id` query param switches the form to security-report mode (no other auth) | See PART 11 → "Security Reports". Without/invalid `security_id`, behaves as the standard contact form. |
 
-**Auth-flow exceptions (within `/auth/*` and `/api/{api_version}/auth/*`):**
+**Auth-flow exceptions (within `/server/auth/*` and `/api/{api_version}/server/auth/*`):**
 
 | Route | Auth | Why |
 |-------|------|-----|
-| `/auth/login`, `/auth/register`, `/auth/password/forgot`, `/auth/password/reset`, `/auth/username/forgot`, `/auth/verify/{token}`, `/auth/invite/*/{token}`, `/auth/passkey/challenge`, `/auth/passkey/verify` | None | Pre-session entry points |
-| `/auth/logout` | Session (web) / Bearer (API) | Must know whose session to end |
-| `/auth/refresh` | Session (web) / Bearer (API) | Must have a session/token to refresh |
-| `/auth/2fa` | Partial-session (post-password, pre-2FA) | Continuation of in-progress login |
-| `/auth/recovery/use` | Partial-session OR password-recovery token | 2FA bypass during account recovery |
+| `/server/auth/login`, `/server/auth/register`, `/server/auth/password/forgot`, `/server/auth/password/reset`, `/server/auth/username/forgot`, `/server/auth/verify/{token}`, `/server/auth/invite/*/{token}`, `/server/auth/passkey/challenge`, `/server/auth/passkey/verify` | None | Pre-session entry points |
+| `/server/auth/logout` | Session (web) / Bearer (API) | Must know whose session to end |
+| `/server/auth/refresh` | Session (web) / Bearer (API) | Must have a session/token to refresh |
+| `/server/auth/2fa` | Partial-session (post-password, pre-2FA) | Continuation of in-progress login |
+| `/server/auth/recovery/use` | Partial-session OR password-recovery token | 2FA bypass during account recovery |
 
 **Project-specific public routes** (e.g., `/jokes/random`, `/quotes`, `/ip`, `/weather`) inherit `Public → None` unless the project's IDEA.md declares a write/admin endpoint.
 
@@ -54275,7 +55477,7 @@ curl -q -LSsf https://api.example.com/api/autodiscover
 
 | Cookie | Scope | Max Age | Notes |
 |--------|-------|---------|-------|
-| `admin_session` | `/{admin_path}/` | 30 days | Admin web sessions |
+| `admin_session` | `/server/{admin_path}/` | 30 days | Admin web sessions |
 | `user_session` | `/users/`, `/orgs/` | 7 days | User web sessions |
 
 ## Web Routes
@@ -54285,7 +55487,7 @@ curl -q -LSsf https://api.example.com/api/autodiscover
 | Path | Description |
 |------|-------------|
 | `/` | Home page |
-| `/healthz` | Health check |
+| `/server/healthz` | Health check |
 | `/server/docs/swagger` | Swagger UI |
 | `/server/docs/graphql` | GraphiQL interface |
 
@@ -54298,25 +55500,27 @@ curl -q -LSsf https://api.example.com/api/autodiscover
 | `/server/contact` | Contact form |
 | `/server/help` | Help / documentation |
 
-### Auth (`/auth/`)
+### Auth (`/server/auth/`)
 
 | Path | Description |
 |------|-------------|
-| `/auth/login` | Login form (username/email + password) |
-| `/auth/logout` | Logout |
-| `/auth/register` | Registration form |
-| `/auth/2fa` | 2FA verification step (after password, before session) |
-| `/auth/passkey` | Passkey authentication (WebAuthn) |
-| `/auth/password/forgot` | Request password reset (sends email) |
-| `/auth/password/reset/{token}` | Set new password (from email link) |
-| `/auth/username/forgot` | Request username reminder (sends email) |
-| `/auth/recovery/use` | Use recovery key (2FA bypass) |
-| `/auth/verify/{token}` | Email verification |
-| `/auth/invite/user/{token}` | User invite acceptance (set username, password) |
-| `/auth/invite/server/{token}` | Server admin invite acceptance (set username, password) |
-| `/auth/oidc/{provider}` | OIDC login initiation (redirect to provider) |
-| `/auth/oidc/{provider}/callback` | OIDC callback (provider redirects back) |
-| `/auth/ldap` | LDAP login form (if separate from main login) |
+| `/server/auth/login` | Login form (username/email + password) |
+| `/server/auth/logout` | Logout |
+| `/server/auth/register` | Registration form |
+| `/server/auth/2fa` | 2FA verification step (after password, before session) |
+| `/server/auth/passkey` | Passkey authentication (WebAuthn) |
+| `/server/auth/password/forgot` | Request password reset (sends email) |
+| `/server/auth/password/reset/{token}` | Set new password (from email link) |
+| `/server/auth/username/forgot` | Request username reminder (sends email) |
+| `/server/auth/recovery/use` | Use recovery key (2FA bypass) |
+| `/server/auth/verify/{token}` | Email verification |
+| `/server/auth/invite/user/{token}` | User invite acceptance (set username, password) |
+| `/server/auth/invite/server/{token}` | Server admin invite acceptance (set username, password) |
+| `/server/auth/oidc/{provider}` | OIDC login initiation (redirect to provider) |
+| `/server/auth/oidc/{provider}/callback` | OIDC callback (provider redirects back) |
+| `/server/auth/ldap` | LDAP provider chooser |
+| `/server/auth/ldap/{provider}` | LDAP login form for the selected provider |
+| `/server/auth/external/username` | First-login username confirmation page after successful OIDC/LDAP auth when a new user/admin record is being created |
 
 ### Users (`/users/`)
 
@@ -54354,50 +55558,72 @@ Organizations - only for projects with multi-user collaboration.
 | `/orgs/{slug}/security/sessions` | Active sessions (org-wide) |
 | `/orgs/{slug}/billing` | Billing & subscription (if applicable) |
 
-### Admin (`/{admin_path}/`)
+### Admin (`/server/{admin_path}/`)
 
 | Path | Description |
 |------|-------------|
-| `/{admin_path}` | Dashboard |
-| `/{admin_path}/profile` | Your admin account (password, API token, 2FA) |
-| `/{admin_path}/profile/preferences` | Admin preferences (theme, notifications) |
+| `/server/{admin_path}` | Dashboard |
+| `/server/{admin_path}/{admin_username}/profile` | Your admin account (password, API token, 2FA) |
+| `/server/{admin_path}/{admin_username}/preferences` | Admin preferences (theme, notifications) |
 
-### Admin - Server (`/{admin_path}/server/`)
-
-| Path | Description |
-|------|-------------|
-| `/{admin_path}/server/setup` | Initial setup wizard |
-| `/{admin_path}/server/settings` | Server settings |
-| `/{admin_path}/server/branding` | Branding & SEO |
-| `/{admin_path}/server/ssl` | SSL/TLS settings |
-| `/{admin_path}/server/tor` | Tor hidden service |
-| `/{admin_path}/server/web` | Web settings (robots.txt, security.txt) |
-| `/{admin_path}/server/pages` | Standard pages (about, privacy, contact) |
-| `/{admin_path}/server/email` | Email/SMTP settings |
-| `/{admin_path}/server/email/templates` | Email templates |
-| `/{admin_path}/server/notifications` | Notification settings |
-| `/{admin_path}/server/scheduler` | Scheduled tasks |
-| `/{admin_path}/server/backup` | Backup & restore |
-| `/{admin_path}/server/logs` | Log viewer |
-| `/{admin_path}/server/roles` | Role definitions |
-| `/{admin_path}/server/users/invites` | User registration invite codes (multi-user apps) |
-
-### Admin - Server Admins (`/{admin_path}/server/admins/`)
+### Admin - Server (`/server/{admin_path}/config/`)
 
 | Path | Description |
 |------|-------------|
-| `/{admin_path}/server/admins` | Server admin accounts |
-| `/{admin_path}/server/admins/invite` | Invite new Server Admin (generates link) |
-| `/{admin_path}/server/admins/{id}` | Admin detail |
+| `/server/{admin_path}/config/setup` | Initial setup wizard |
+| `/server/{admin_path}/config/settings` | Server settings |
+| `/server/{admin_path}/config/branding` | Branding & SEO |
+| `/server/{admin_path}/config/ssl` | SSL/TLS settings |
+| `/server/{admin_path}/config/tor` | Tor hidden service |
+| `/server/{admin_path}/config/web` | Web settings (robots.txt, security.txt, well-known) |
+| `/server/{admin_path}/config/pages` | Standard pages (about, privacy, contact) |
+| `/server/{admin_path}/config/email` | Email/SMTP settings |
+| `/server/{admin_path}/config/email/templates` | Email templates |
+| `/server/{admin_path}/config/notifications` | Notification settings |
+| `/server/{admin_path}/config/scheduler` | Scheduled tasks |
+| `/server/{admin_path}/config/backup` | Backup & restore |
+| `/server/{admin_path}/config/logs` | Log viewer |
+| `/server/{admin_path}/config/roles` | Role definitions |
+| `/server/{admin_path}/config/security/auth` | Auth settings and external provider overview |
+| `/server/{admin_path}/config/users/invites` | User registration invite codes (multi-user apps) |
 
-### Admin - Moderation (`/{admin_path}/server/moderation/`)
+### Admin - Auth Providers (`/server/{admin_path}/config/security/auth/`)
 
 | Path | Description |
 |------|-------------|
-| `/{admin_path}/server/moderation/users` | User moderation |
-| `/{admin_path}/server/moderation/users/{id}` | User detail |
-| `/{admin_path}/server/moderation/orgs` | Org moderation |
-| `/{admin_path}/server/moderation/orgs/{slug}` | Org detail |
+| `/server/{admin_path}/config/security/auth` | Authentication overview, password/MFA/session settings, and external-auth summaries |
+| `/server/{admin_path}/config/security/auth/oidc` | OIDC provider list |
+| `/server/{admin_path}/config/security/auth/oidc/new` | Add OIDC provider |
+| `/server/{admin_path}/config/security/auth/oidc/{provider}` | OIDC provider detail/edit/test/remove |
+| `/server/{admin_path}/config/security/auth/ldap` | LDAP provider list |
+| `/server/{admin_path}/config/security/auth/ldap/new` | Add LDAP provider |
+| `/server/{admin_path}/config/security/auth/ldap/{provider}` | LDAP provider detail/edit/test/remove |
+
+### Admin - Web (`/server/{admin_path}/config/web/`)
+
+| Path | Description |
+|------|-------------|
+| `/server/{admin_path}/config/web` | Web settings overview |
+| `/server/{admin_path}/config/web/robots` | robots.txt settings |
+| `/server/{admin_path}/config/web/security` | security.txt settings |
+| `/server/{admin_path}/config/web/well-known` | Well-known namespace settings, optional entry toggles, and previews |
+
+### Admin - Server Admins (`/server/{admin_path}/config/admins/`)
+
+| Path | Description |
+|------|-------------|
+| `/server/{admin_path}/config/admins` | Server admin accounts |
+| `/server/{admin_path}/config/admins/invite` | Invite new Server Admin (generates link) |
+| `/server/{admin_path}/config/admins/{id}` | Admin detail |
+
+### Admin - Moderation (`/server/{admin_path}/config/moderation/`)
+
+| Path | Description |
+|------|-------------|
+| `/server/{admin_path}/config/moderation/users` | User moderation |
+| `/server/{admin_path}/config/moderation/users/{id}` | User detail |
+| `/server/{admin_path}/config/moderation/orgs` | Org moderation |
+| `/server/{admin_path}/config/moderation/orgs/{slug}` | Org detail |
 
 ## API Routes
 
@@ -54405,13 +55631,14 @@ Organizations - only for projects with multi-user collaboration.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/healthz` | GET | Health check |
-| `/api/{api_version}/swagger` | GET | OpenAPI JSON spec (versioned) |
-| `/api/{api_version}/graphql` | POST | GraphQL queries (versioned) |
-| `/api/swagger` | GET | OpenAPI JSON spec — alias for current `{api_version}` |
-| `/api/graphql` | POST | GraphQL queries — alias for current `{api_version}` |
+| `/api/{api_version}/server/healthz` | GET | Health check |
+| `/api/{api_version}/server/swagger` | GET | OpenAPI JSON spec (versioned) |
+| `/api/{api_version}/server/graphql` | POST | GraphQL queries (versioned) |
+| `/api/healthz` | GET | Health check — direct alias for current `{api_version}` |
+| `/api/swagger` | GET | OpenAPI JSON spec — direct alias for current `{api_version}` |
+| `/api/graphql` | POST | GraphQL queries — direct alias for current `{api_version}` |
 
-**Note:** Swagger and GraphQL endpoints follow the same `/api/{api_version}/...` versioning rule as the rest of the API. The unversioned `/api/swagger` and `/api/graphql` are aliases that resolve to the current `{api_version}`. The interactive UIs live under `/server/docs/swagger` and `/server/docs/graphql` (see PART 16).
+**Note:** Swagger, GraphQL, and health endpoints follow the same `/api/{api_version}/...` versioning rule as the rest of the API. The unversioned `/api/swagger`, `/api/graphql`, and `/api/healthz` paths are direct aliases that resolve to the current `{api_version}` without redirects. The interactive UIs live under `/server/docs/swagger` and `/server/docs/graphql` (see PART 16).
 
 ### Server (`/api/{api_version}/server/`)
 
@@ -54450,7 +55677,7 @@ Organizations - only for projects with multi-user collaboration.
 | Logging | Each report writes one entry to `security.log` (CSP/NEL/error) or `server.log` (deprecation/intervention/crash) — see PART 11 log events |
 | Rate limit | Per-IP, configurable via `web.csp.reports_sample_rate` (CSP) and `web.reports.rate_limit_per_minute` (other types). Default 60/min/IP. |
 | Storage | Append to log only. Reports do NOT touch the application database — they are operational telemetry, not user data. |
-| Operator visibility | Admin panel `/{admin_path}/server/reports/*` views show recent entries with filtering by type, time range, and source IP/origin. Admin views are bearer-auth (the public POST endpoints are not). |
+| Operator visibility | Admin panel `/server/{admin_path}/config/reports/*` views show recent entries with filtering by type, time range, and source IP/origin. Admin views are bearer-auth (the public POST endpoints are not). |
 
 **Authoring rule for new public reports:** if the project (or a third-party browser feature) needs to add a new public POST sink for telemetry, ALWAYS add it as `/api/{api_version}/server/reports/{new_name}` — never invent a new top-level path. This keeps the API tree predictable and the rate-limit / auth / logging policy uniform.
 
@@ -54477,34 +55704,36 @@ Organizations - only for projects with multi-user collaboration.
 | No echo, ever | Response body is always `{"ok": true}` (or 204 No Content). NEVER reflect any field from the request body in the response. |
 | No user identifier correlation | Reports are NOT joined with any logged-in user — even if the browser was authenticated when emitting the report. They are anonymous operational telemetry. |
 | No DB writes | Reports go to log files only (`security.log` for csp/nel/error, `server.log` for the rest). They do not touch the application database. |
-| Admin views run the same sanitization | The `/{admin_path}/server/reports/*` admin views display the *already-sanitized* log entries. There is no "raw" view, even for admins. |
+| Admin views run the same sanitization | The `/server/{admin_path}/config/reports/*` admin views display the *already-sanitized* log entries. There is no "raw" view, even for admins. |
 | Sample to prevent flood | High-volume types (csp from a misbehaving extension, nel from a flaky network) are dropped above the rate limit, NEVER buffered to disk first. |
 
 **Why the no-echo / no-correlation / no-DB rules:** a malicious extension or page in another tab could trigger reports on our domain. Treating reports as "trusted because they come from our origin" is wrong — the browser is the trust boundary, and the browser's contents are attacker-controlled. By keeping reports anonymous, append-only, log-only, and never echoed, a poisoned report cannot corrupt application state, leak another user's data, or escalate.
 
-### Auth (`/api/{api_version}/auth/`)
+### Auth (`/api/{api_version}/server/auth/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/auth/register` | POST | Register new user |
-| `/api/{api_version}/auth/login` | POST | User login (returns session or 2FA challenge) |
-| `/api/{api_version}/auth/logout` | POST | User logout |
-| `/api/{api_version}/auth/2fa` | POST | Complete 2FA verification |
-| `/api/{api_version}/auth/passkey/challenge` | POST | Get WebAuthn challenge |
-| `/api/{api_version}/auth/passkey/verify` | POST | Verify WebAuthn response |
-| `/api/{api_version}/auth/password/forgot` | POST | Request password reset (sends email) |
-| `/api/{api_version}/auth/password/reset` | POST | Set new password (with token from email) |
-| `/api/{api_version}/auth/username/forgot` | POST | Request username reminder (sends email) |
-| `/api/{api_version}/auth/recovery/use` | POST | Use recovery key (2FA bypass) |
-| `/api/{api_version}/auth/verify` | POST | Verify email address |
-| `/api/{api_version}/auth/refresh` | POST | Refresh session/token |
-| `/api/{api_version}/auth/invite/user/{token}` | GET | Validate user invite token |
-| `/api/{api_version}/auth/invite/user/{token}` | POST | Complete user invite (set username, password) |
-| `/api/{api_version}/auth/invite/server/{token}` | GET | Validate Server Admin invite token |
-| `/api/{api_version}/auth/invite/server/{token}` | POST | Complete admin invite (set username, password) |
-| `/api/{api_version}/auth/oidc/{provider}` | GET | Get OIDC authorization URL |
-| `/api/{api_version}/auth/oidc/{provider}/callback` | POST | Exchange OIDC code for session |
-| `/api/{api_version}/auth/ldap` | POST | LDAP authentication |
+| `/api/{api_version}/server/auth/register` | POST | Register new user |
+| `/api/{api_version}/server/auth/login` | POST | User login (returns session or 2FA challenge) |
+| `/api/{api_version}/server/auth/logout` | POST | User logout |
+| `/api/{api_version}/server/auth/2fa` | POST | Complete 2FA verification |
+| `/api/{api_version}/server/auth/passkey/challenge` | POST | Get WebAuthn challenge |
+| `/api/{api_version}/server/auth/passkey/verify` | POST | Verify WebAuthn response |
+| `/api/{api_version}/server/auth/password/forgot` | POST | Request password reset (sends email) |
+| `/api/{api_version}/server/auth/password/reset` | POST | Set new password (with token from email) |
+| `/api/{api_version}/server/auth/username/forgot` | POST | Request username reminder (sends email) |
+| `/api/{api_version}/server/auth/recovery/use` | POST | Use recovery key (2FA bypass) |
+| `/api/{api_version}/server/auth/verify` | POST | Verify email address |
+| `/api/{api_version}/server/auth/refresh` | POST | Refresh session/token |
+| `/api/{api_version}/server/auth/invite/user/{token}` | GET | Validate user invite token |
+| `/api/{api_version}/server/auth/invite/user/{token}` | POST | Complete user invite (set username, password) |
+| `/api/{api_version}/server/auth/invite/server/{token}` | GET | Validate Server Admin invite token |
+| `/api/{api_version}/server/auth/invite/server/{token}` | POST | Complete admin invite (set username, password) |
+| `/api/{api_version}/server/auth/oidc/{provider}` | GET | Get OIDC authorization URL for user/admin login |
+| `/api/{api_version}/server/auth/oidc/{provider}/callback` | POST | Exchange OIDC code for session, then apply user/admin mapping rules |
+| `/api/{api_version}/server/auth/ldap` | GET | List enabled LDAP providers and their display names for login UI/client selection |
+| `/api/{api_version}/server/auth/ldap/{provider}` | POST | LDAP authentication for the selected provider, then apply user/admin mapping rules |
+| `/api/{api_version}/server/auth/external/username` | POST | Complete external user/admin account creation after the first-login username confirmation step |
 
 ### Users (`/api/{api_version}/users/`)
 
@@ -54570,188 +55799,193 @@ Organizations - only for projects with multi-user collaboration.
 | `/api/{api_version}/orgs/{slug}/security/audit/retention` | PATCH | Update retention (org owner only) |
 | `/api/{api_version}/orgs/{slug}/security/sessions` | GET | List org-wide sessions |
 
-### Admin - Server (`/api/{api_version}/{admin_path}/server/`)
+### Admin - Server (`/api/{api_version}/server/{admin_path}/config/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/setup` | GET | Get setup status (is_complete, current_step) |
-| `/api/{api_version}/{admin_path}/server/setup/verify` | POST | Verify setup token |
-| `/api/{api_version}/{admin_path}/server/setup/account` | POST | Create admin account (Step 1) |
-| `/api/{api_version}/{admin_path}/server/setup/token` | POST | Generate API token (Step 2) |
-| `/api/{api_version}/{admin_path}/server/setup/config` | POST | Save server config (Step 3) |
-| `/api/{api_version}/{admin_path}/server/setup/security` | POST | Security settings - backup password, 2FA (Step 4) |
-| `/api/{api_version}/{admin_path}/server/setup/services` | POST | Configure services (Step 5) |
-| `/api/{api_version}/{admin_path}/server/setup/complete` | POST | Complete setup wizard (Step 6) |
-| `/api/{api_version}/{admin_path}/server/settings` | GET | Get server settings |
-| `/api/{api_version}/{admin_path}/server/settings` | PATCH | Update server settings |
-| `/api/{api_version}/{admin_path}/server/status` | GET | Server status (detailed, admin-only) |
-| `/api/{api_version}/{admin_path}/server/stats` | GET | Statistics |
-| `/api/{api_version}/{admin_path}/server/restart` | POST | Restart server |
+| `/api/{api_version}/server/{admin_path}/config/setup` | GET | Get setup status (is_complete, current_step) |
+| `/api/{api_version}/server/{admin_path}/config/setup/verify` | POST | Verify setup token |
+| `/api/{api_version}/server/{admin_path}/config/setup/account` | POST | Create admin account (Step 1) |
+| `/api/{api_version}/server/{admin_path}/config/setup/token` | POST | Generate API token (Step 2) |
+| `/api/{api_version}/server/{admin_path}/config/setup/config` | POST | Save server config (Step 3) |
+| `/api/{api_version}/server/{admin_path}/config/setup/security` | POST | Security settings - backup password, 2FA (Step 4) |
+| `/api/{api_version}/server/{admin_path}/config/setup/services` | POST | Configure services (Step 5) |
+| `/api/{api_version}/server/{admin_path}/config/setup/complete` | POST | Complete setup wizard (Step 6) |
+| `/api/{api_version}/server/{admin_path}/config/settings` | GET | Get server settings |
+| `/api/{api_version}/server/{admin_path}/config/settings` | PATCH | Update server settings |
+| `/api/{api_version}/server/{admin_path}/config/status` | GET | Server status (detailed, admin-only) |
+| `/api/{api_version}/server/{admin_path}/config/stats` | GET | Statistics |
+| `/api/{api_version}/server/{admin_path}/config/restart` | POST | Restart server |
 
-### Admin - Server Roles (`/api/{api_version}/{admin_path}/server/roles/`)
+### Admin - Server Roles (`/api/{api_version}/server/{admin_path}/config/roles/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/roles` | GET | List roles |
-| `/api/{api_version}/{admin_path}/server/roles` | POST | Create role |
-| `/api/{api_version}/{admin_path}/server/roles/{id}` | GET | Get role details |
-| `/api/{api_version}/{admin_path}/server/roles/{id}` | PATCH | Update role |
-| `/api/{api_version}/{admin_path}/server/roles/{id}` | DELETE | Delete role |
+| `/api/{api_version}/server/{admin_path}/config/roles` | GET | List roles |
+| `/api/{api_version}/server/{admin_path}/config/roles` | POST | Create role |
+| `/api/{api_version}/server/{admin_path}/config/roles/{id}` | GET | Get role details |
+| `/api/{api_version}/server/{admin_path}/config/roles/{id}` | PATCH | Update role |
+| `/api/{api_version}/server/{admin_path}/config/roles/{id}` | DELETE | Delete role |
 
-### Admin - User Invites (`/api/{api_version}/{admin_path}/server/users/invites/`)
+### Admin - User Invites (`/api/{api_version}/server/{admin_path}/config/users/invites/`)
 
 User registration invite codes (multi-user apps only).
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/users/invites` | GET | List user invite codes |
-| `/api/{api_version}/{admin_path}/server/users/invites` | POST | Create user invite code |
-| `/api/{api_version}/{admin_path}/server/users/invites/{id}` | GET | Get invite details |
-| `/api/{api_version}/{admin_path}/server/users/invites/{id}` | DELETE | Revoke invite |
+| `/api/{api_version}/server/{admin_path}/config/users/invites` | GET | List user invite codes |
+| `/api/{api_version}/server/{admin_path}/config/users/invites` | POST | Create user invite code |
+| `/api/{api_version}/server/{admin_path}/config/users/invites/{id}` | GET | Get invite details |
+| `/api/{api_version}/server/{admin_path}/config/users/invites/{id}` | DELETE | Revoke invite |
 
-### Admin - Server Admins (`/api/{api_version}/{admin_path}/server/admins/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/admins` | GET | List Server Admins |
-| `/api/{api_version}/{admin_path}/server/admins/{id}` | GET | Get admin details |
-| `/api/{api_version}/{admin_path}/server/admins/{id}` | DELETE | Delete admin |
-| `/api/{api_version}/{admin_path}/server/admins/{id}/disable` | POST | Disable admin |
-| `/api/{api_version}/{admin_path}/server/admins/{id}/enable` | POST | Enable admin |
-| `/api/{api_version}/{admin_path}/server/admins/invite` | POST | Generate admin invite link |
-
-### Admin - Moderation Users (`/api/{api_version}/{admin_path}/server/moderation/users/`)
+### Admin - Server Admins (`/api/{api_version}/server/{admin_path}/config/admins/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/moderation/users` | GET | List all users |
-| `/api/{api_version}/{admin_path}/server/moderation/users/{id}` | GET | Get user details |
-| `/api/{api_version}/{admin_path}/server/moderation/users/{id}` | DELETE | Delete user |
-| `/api/{api_version}/{admin_path}/server/moderation/users/disable` | POST | Disable user |
-| `/api/{api_version}/{admin_path}/server/moderation/users/enable` | POST | Enable user |
-| `/api/{api_version}/{admin_path}/server/moderation/users/impersonate` | POST | Get impersonation token |
+| `/api/{api_version}/server/{admin_path}/config/admins` | GET | List Server Admins |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}` | GET | Get admin details |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}` | DELETE | Delete admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}/disable` | POST | Disable admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/{id}/enable` | POST | Enable admin |
+| `/api/{api_version}/server/{admin_path}/config/admins/invite` | POST | Generate admin invite link |
 
-### Admin - Moderation Orgs (`/api/{api_version}/{admin_path}/server/moderation/orgs/`)
+### Admin - Moderation Users (`/api/{api_version}/server/{admin_path}/config/moderation/users/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/moderation/users` | GET | List all users |
+| `/api/{api_version}/server/{admin_path}/config/moderation/users/{id}` | GET | Get user details |
+| `/api/{api_version}/server/{admin_path}/config/moderation/users/{id}` | DELETE | Delete user |
+| `/api/{api_version}/server/{admin_path}/config/moderation/users/disable` | POST | Disable user |
+| `/api/{api_version}/server/{admin_path}/config/moderation/users/enable` | POST | Enable user |
+| `/api/{api_version}/server/{admin_path}/config/moderation/users/impersonate` | POST | Get impersonation token |
+
+### Admin - Moderation Orgs (`/api/{api_version}/server/{admin_path}/config/moderation/orgs/`)
 
 Moderation only - Server Admin does not manage org members/roles.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/moderation/orgs` | GET | List all organizations |
-| `/api/{api_version}/{admin_path}/server/moderation/orgs/{slug}` | GET | Get organization details |
-| `/api/{api_version}/{admin_path}/server/moderation/orgs/{slug}` | DELETE | Delete organization |
-| `/api/{api_version}/{admin_path}/server/moderation/orgs/{slug}/disable` | POST | Disable organization |
-| `/api/{api_version}/{admin_path}/server/moderation/orgs/{slug}/enable` | POST | Enable organization |
+| `/api/{api_version}/server/{admin_path}/config/moderation/orgs` | GET | List all organizations |
+| `/api/{api_version}/server/{admin_path}/config/moderation/orgs/{slug}` | GET | Get organization details |
+| `/api/{api_version}/server/{admin_path}/config/moderation/orgs/{slug}` | DELETE | Delete organization |
+| `/api/{api_version}/server/{admin_path}/config/moderation/orgs/{slug}/disable` | POST | Disable organization |
+| `/api/{api_version}/server/{admin_path}/config/moderation/orgs/{slug}/enable` | POST | Enable organization |
 
-### Admin - Profile (`/api/{api_version}/{admin_path}/profile/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/profile` | GET | Get admin profile |
-| `/api/{api_version}/{admin_path}/profile` | PATCH | Update admin profile (username, icon) |
-| `/api/{api_version}/{admin_path}/profile/password` | POST | Change admin password |
-| `/api/{api_version}/{admin_path}/profile/token` | GET | Get current API token (masked) |
-| `/api/{api_version}/{admin_path}/profile/token` | POST | Regenerate API token (returns new token ONCE) |
-| `/api/{api_version}/{admin_path}/profile/preferences` | GET | Get admin preferences (theme, notifications) |
-| `/api/{api_version}/{admin_path}/profile/preferences` | PATCH | Update admin preferences |
-
-### Admin - Branding (`/api/{api_version}/{admin_path}/server/branding/`)
+### Admin - Profile (`/api/{api_version}/server/{admin_path}/{admin_username}/profile/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/branding` | GET | Get branding settings |
-| `/api/{api_version}/{admin_path}/server/branding` | PATCH | Update branding |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile` | GET | Get admin profile |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile` | PATCH | Update admin profile (username, icon) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/password` | POST | Change admin password |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/token` | GET | Get current API token (masked) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/profile/token` | POST | Regenerate API token (returns new token ONCE) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/preferences` | GET | Get admin preferences (theme, notifications) |
+| `/api/{api_version}/server/{admin_path}/{admin_username}/preferences` | PATCH | Update admin preferences |
 
-### Admin - SSL (`/api/{api_version}/{admin_path}/server/ssl/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/ssl` | GET | Get SSL settings |
-| `/api/{api_version}/{admin_path}/server/ssl` | PATCH | Update SSL settings |
-| `/api/{api_version}/{admin_path}/server/ssl/renew` | POST | Force certificate renewal |
-
-### Admin - Tor (`/api/{api_version}/{admin_path}/server/tor/`)
+### Admin - Branding (`/api/{api_version}/server/{admin_path}/config/branding/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/tor` | GET | Get Tor status |
-| `/api/{api_version}/{admin_path}/server/tor` | PATCH | Update Tor settings |
-| `/api/{api_version}/{admin_path}/server/tor/regenerate` | POST | Regenerate .onion address |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | GET | Get vanity generation status |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | POST | Start vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity` | DELETE | Cancel vanity generation |
-| `/api/{api_version}/{admin_path}/server/tor/vanity/apply` | POST | Apply vanity address |
-| `/api/{api_version}/{admin_path}/server/tor/import` | POST | Import external keys |
+| `/api/{api_version}/server/{admin_path}/config/branding` | GET | Get branding settings |
+| `/api/{api_version}/server/{admin_path}/config/branding` | PATCH | Update branding |
 
-### Admin - Web (robots.txt, security.txt) (`/api/{api_version}/{admin_path}/server/web/`)
+### Admin - SSL (`/api/{api_version}/server/{admin_path}/config/ssl/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/web` | GET | Get web settings |
-| `/api/{api_version}/{admin_path}/server/web` | PATCH | Update web settings |
-| `/api/{api_version}/{admin_path}/server/web/robots` | GET | Get robots.txt config |
-| `/api/{api_version}/{admin_path}/server/web/robots` | PATCH | Update robots.txt |
-| `/api/{api_version}/{admin_path}/server/web/robots/preview` | GET | Preview robots.txt |
-| `/api/{api_version}/{admin_path}/server/web/security` | GET | Get security.txt config |
-| `/api/{api_version}/{admin_path}/server/web/security` | PATCH | Update security.txt |
-| `/api/{api_version}/{admin_path}/server/web/security/preview` | GET | Preview security.txt |
+| `/api/{api_version}/server/{admin_path}/config/ssl` | GET | Get SSL settings |
+| `/api/{api_version}/server/{admin_path}/config/ssl` | PATCH | Update SSL settings |
+| `/api/{api_version}/server/{admin_path}/config/ssl/renew` | POST | Force certificate renewal |
 
-### Admin - Pages (`/api/{api_version}/{admin_path}/server/pages/`)
+### Admin - Tor (`/api/{api_version}/server/{admin_path}/config/tor/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/pages` | GET | Get all page settings |
-| `/api/{api_version}/{admin_path}/server/pages/about` | GET | Get about page content |
-| `/api/{api_version}/{admin_path}/server/pages/about` | PATCH | Update about page content |
-| `/api/{api_version}/{admin_path}/server/pages/privacy` | GET | Get privacy policy content |
-| `/api/{api_version}/{admin_path}/server/pages/privacy` | PATCH | Update privacy policy content |
-| `/api/{api_version}/{admin_path}/server/pages/contact` | GET | Get contact page settings |
-| `/api/{api_version}/{admin_path}/server/pages/contact` | PATCH | Update contact page settings |
-| `/api/{api_version}/{admin_path}/server/pages/help` | GET | Get help page content |
-| `/api/{api_version}/{admin_path}/server/pages/help` | PATCH | Update help page content |
+| `/api/{api_version}/server/{admin_path}/config/tor` | GET | Get Tor status |
+| `/api/{api_version}/server/{admin_path}/config/tor` | PATCH | Update Tor settings |
+| `/api/{api_version}/server/{admin_path}/config/tor/regenerate` | POST | Regenerate .onion address |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | GET | Get vanity generation status |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | POST | Start vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity` | DELETE | Cancel vanity generation |
+| `/api/{api_version}/server/{admin_path}/config/tor/vanity/apply` | POST | Apply vanity address |
+| `/api/{api_version}/server/{admin_path}/config/tor/import` | POST | Import external keys |
 
-### Admin - Email (`/api/{api_version}/{admin_path}/server/email/`)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/email` | GET | Get email settings |
-| `/api/{api_version}/{admin_path}/server/email` | PATCH | Update email settings |
-| `/api/{api_version}/{admin_path}/server/email/test` | POST | Send test email |
-| `/api/{api_version}/{admin_path}/server/email/templates` | GET | List email templates |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}` | GET | Get template |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}` | PUT | Update template |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}/reset` | POST | Reset to default |
-| `/api/{api_version}/{admin_path}/server/email/templates/{name}/preview` | POST | Preview template |
-
-### Admin - Scheduler (`/api/{api_version}/{admin_path}/server/scheduler/`)
+### Admin - Web (robots.txt, security.txt, well-known) (`/api/{api_version}/server/{admin_path}/config/web/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/scheduler` | GET | List scheduled tasks |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | GET | Get task details |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}` | PATCH | Update task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/run` | POST | Run task now |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/enable` | POST | Enable task |
-| `/api/{api_version}/{admin_path}/server/scheduler/{id}/disable` | POST | Disable task |
+| `/api/{api_version}/server/{admin_path}/config/web` | GET | Get web settings |
+| `/api/{api_version}/server/{admin_path}/config/web` | PATCH | Update web settings |
+| `/api/{api_version}/server/{admin_path}/config/web/robots` | GET | Get robots.txt config |
+| `/api/{api_version}/server/{admin_path}/config/web/robots` | PATCH | Update robots.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/robots/preview` | GET | Preview robots.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/security` | GET | Get security.txt config |
+| `/api/{api_version}/server/{admin_path}/config/web/security` | PATCH | Update security.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/security/preview` | GET | Preview security.txt |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known` | GET | Get well-known namespace settings and supported entries |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known` | PATCH | Update optional well-known entry settings |
+| `/api/{api_version}/server/{admin_path}/config/web/well-known/preview/{name}` | GET | Preview the exact rendered body for one well-known entry |
 
-### Admin - Backup (`/api/{api_version}/{admin_path}/server/backup/`)
+**`/api/{api_version}/server/{admin_path}/config/web` includes `server.healthz.root.enabled` and well-known namespace status in its settings payload.**
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/backup` | GET | List backups |
-| `/api/{api_version}/{admin_path}/server/backup` | POST | Create backup |
-| `/api/{api_version}/{admin_path}/server/backup/{id}` | GET | Get backup details |
-| `/api/{api_version}/{admin_path}/server/backup/{id}` | DELETE | Delete backup |
-| `/api/{api_version}/{admin_path}/server/backup/{id}/download` | GET | Download backup file |
-| `/api/{api_version}/{admin_path}/server/backup/restore` | POST | Restore from backup |
-
-### Admin - Logs (`/api/{api_version}/{admin_path}/server/logs/`)
+### Admin - Pages (`/api/{api_version}/server/{admin_path}/config/pages/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/logs` | GET | List log files |
-| `/api/{api_version}/{admin_path}/server/logs/{type}` | GET | Get log entries |
-| `/api/{api_version}/{admin_path}/server/logs/{type}/download` | GET | Download log file |
+| `/api/{api_version}/server/{admin_path}/config/pages` | GET | Get all page settings |
+| `/api/{api_version}/server/{admin_path}/config/pages/about` | GET | Get about page content |
+| `/api/{api_version}/server/{admin_path}/config/pages/about` | PATCH | Update about page content |
+| `/api/{api_version}/server/{admin_path}/config/pages/privacy` | GET | Get privacy policy content |
+| `/api/{api_version}/server/{admin_path}/config/pages/privacy` | PATCH | Update privacy policy content |
+| `/api/{api_version}/server/{admin_path}/config/pages/contact` | GET | Get contact page settings |
+| `/api/{api_version}/server/{admin_path}/config/pages/contact` | PATCH | Update contact page settings |
+| `/api/{api_version}/server/{admin_path}/config/pages/help` | GET | Get help page content |
+| `/api/{api_version}/server/{admin_path}/config/pages/help` | PATCH | Update help page content |
+
+### Admin - Email (`/api/{api_version}/server/{admin_path}/config/email/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/email` | GET | Get email settings |
+| `/api/{api_version}/server/{admin_path}/config/email` | PATCH | Update email settings |
+| `/api/{api_version}/server/{admin_path}/config/email/test` | POST | Send test email |
+| `/api/{api_version}/server/{admin_path}/config/email/templates` | GET | List email templates |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}` | GET | Get template |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}` | PUT | Update template |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}/reset` | POST | Reset to default |
+| `/api/{api_version}/server/{admin_path}/config/email/templates/{name}/preview` | POST | Preview template |
+
+### Admin - Scheduler (`/api/{api_version}/server/{admin_path}/config/scheduler/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/scheduler` | GET | List scheduled tasks |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | GET | Get task details |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}` | PATCH | Update task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/run` | POST | Run task now |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/enable` | POST | Enable task |
+| `/api/{api_version}/server/{admin_path}/config/scheduler/{id}/disable` | POST | Disable task |
+
+### Admin - Backup (`/api/{api_version}/server/{admin_path}/config/backup/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/backup` | GET | List backups |
+| `/api/{api_version}/server/{admin_path}/config/backup` | POST | Create backup |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}` | GET | Get backup details |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}` | DELETE | Delete backup |
+| `/api/{api_version}/server/{admin_path}/config/backup/{id}/download` | GET | Download backup file |
+| `/api/{api_version}/server/{admin_path}/config/backup/restore` | POST | Restore from backup |
+
+### Admin - Logs (`/api/{api_version}/server/{admin_path}/config/logs/`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/{api_version}/server/{admin_path}/config/logs` | GET | List log files |
+| `/api/{api_version}/server/{admin_path}/config/logs/{type}` | GET | Get log entries |
+| `/api/{api_version}/server/{admin_path}/config/logs/{type}/download` | GET | Download log file |
 
 ## Email Templates (User-Related)
 
@@ -55019,7 +56253,7 @@ On restart, the application:
 
 **Method 2: Admin WebUI**
 
-`/{admin_path}/server/database`
+`/server/{admin_path}/config/database`
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -55116,7 +56350,7 @@ Settings can be stored in database OR config file. Sync between them:
 **SQLite → YAML (Export settings to file):**
 
 ```
-Admin WebUI: /{admin_path}/server/settings → "Export to YAML"
+Admin WebUI: /server/{admin_path}/config/settings → "Export to YAML"
          │
          ▼
 Read all settings from server.db
@@ -55275,7 +56509,7 @@ Local MariaDB INSERT                     Local PostgreSQL INSERT
 
 **On existing node:**
 
-1. Go to `/{admin_path}/server/nodes/add`
+1. Go to `/server/{admin_path}/config/nodes/add`
 2. Click "Generate Token" button
 3. Server generates:
    - Token: `node_{random_32_chars}`
@@ -55284,7 +56518,7 @@ Local MariaDB INSERT                     Local PostgreSQL INSERT
 
 **On new server:**
 
-1. Go to `/{admin_path}/server/nodes/add`
+1. Go to `/server/{admin_path}/config/nodes/add`
 2. Enter:
    - URL from existing node
    - Token from existing node
@@ -55299,7 +56533,7 @@ Local MariaDB INSERT                     Local PostgreSQL INSERT
 Existing Node                          New Node
      │                                      │
      ▼                                      │
-/{admin_path}/server/nodes/add               │
+/server/{admin_path}/config/nodes/add               │
      │                                      │
      ▼                                      │
 Generate Token                              │
@@ -55309,7 +56543,7 @@ Generate Token                              │
      └──────── Share token + URL ──────────►│
                                             │
                                             ▼
-                                   /{admin_path}/server/nodes/add
+                                   /server/{admin_path}/config/nodes/add
                                             │
                                             ▼
                                    Enter URL + Token
@@ -55328,7 +56562,7 @@ Generate Token                              │
 ```
 NEW NODE                                    EXISTING NODE
     │                                            │
-    │  1. POST /api/{api_version}/{admin_path}/server/nodes/join   │
+    │  1. POST /api/{api_version}/server/{admin_path}/config/nodes/join   │
     │     Body: { "token": "node_xxx" }          │
     │─────────────────────────────────────────►  │
     │                                            │
@@ -55380,7 +56614,7 @@ NEW NODE                                    EXISTING NODE
 
 #### Bootstrap Data Structure
 
-**Response from existing node (`POST /api/{api_version}/{admin_path}/server/nodes/join`):**
+**Response from existing node (`POST /api/{api_version}/server/{admin_path}/config/nodes/join`):**
 
 ```json
 {
@@ -55534,7 +56768,7 @@ func updateHeartbeat(db *sql.DB, nodeID string) {
 
 **A node can only remove ITSELF from the cluster.**
 
-1. Go to `/{admin_path}/server/nodes/remove` (on the node to remove)
+1. Go to `/server/{admin_path}/config/nodes/remove` (on the node to remove)
 2. Click "Remove from Cluster"
 3. Confirmation modal: "Are you sure you want to remove {nodename} from the cluster?"
    - [Yes, Remove] [Cancel]
@@ -55548,7 +56782,7 @@ func updateHeartbeat(db *sql.DB, nodeID string) {
 
 #### Viewing Nodes
 
-**`/{admin_path}/server/nodes`** - Node list
+**`/server/{admin_path}/config/nodes`** - Node list
 
 | Column | Description |
 |--------|-------------|
@@ -55558,7 +56792,7 @@ func updateHeartbeat(db *sql.DB, nodeID string) {
 | Version | Application version |
 | Last Seen | Last heartbeat time |
 
-**`/{admin_path}/server/nodes/{node}`** - Node detail
+**`/server/{admin_path}/config/nodes/{node}`** - Node detail
 
 | Section | Contents |
 |---------|----------|
@@ -55572,7 +56806,7 @@ func updateHeartbeat(db *sql.DB, nodeID string) {
 
 | Setting | Default | Changeable |
 |---------|---------|------------|
-| Node ID | `{hostname}` | Yes, via `/{admin_path}/server/nodes/settings` |
+| Node ID | `{hostname}` | Yes, via `/server/{admin_path}/config/nodes/settings` |
 | Display Name | `{hostname}` | Yes |
 
 #### First Node Behavior
@@ -55583,7 +56817,7 @@ func updateHeartbeat(db *sql.DB, nodeID string) {
 Single Instance (SQLite)
          │
          ▼
-Admin goes to /{admin_path}/server/nodes/add
+Admin goes to /server/{admin_path}/config/nodes/add
          │
          ▼
 Clicks "Generate Token"
@@ -55604,23 +56838,23 @@ On confirm:
 
 | Route | Description |
 |-------|-------------|
-| `/{admin_path}/server/nodes` | List all nodes |
-| `/{admin_path}/server/nodes/add` | Add node (generate token OR join) |
-| `/{admin_path}/server/nodes/remove` | Remove THIS node from cluster |
-| `/{admin_path}/server/nodes/settings` | Node identity settings |
-| `/{admin_path}/server/nodes/{node}` | View specific node details |
+| `/server/{admin_path}/config/nodes` | List all nodes |
+| `/server/{admin_path}/config/nodes/add` | Add node (generate token OR join) |
+| `/server/{admin_path}/config/nodes/remove` | Remove THIS node from cluster |
+| `/server/{admin_path}/config/nodes/settings` | Node identity settings |
+| `/server/{admin_path}/config/nodes/{node}` | View specific node details |
 
 #### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/nodes` | GET | List all nodes |
-| `/api/{api_version}/{admin_path}/server/nodes/token` | POST | Generate join token |
-| `/api/{api_version}/{admin_path}/server/nodes/join` | POST | Join cluster with token |
-| `/api/{api_version}/{admin_path}/server/nodes/leave` | POST | Remove this node from cluster |
-| `/api/{api_version}/{admin_path}/server/nodes/{node}` | GET | Get node details |
-| `/api/{api_version}/{admin_path}/server/nodes/settings` | GET | Get node identity settings |
-| `/api/{api_version}/{admin_path}/server/nodes/settings` | PATCH | Update node identity |
+| `/api/{api_version}/server/{admin_path}/config/nodes` | GET | List all nodes |
+| `/api/{api_version}/server/{admin_path}/config/nodes/token` | POST | Generate join token |
+| `/api/{api_version}/server/{admin_path}/config/nodes/join` | POST | Join cluster with token |
+| `/api/{api_version}/server/{admin_path}/config/nodes/leave` | POST | Remove this node from cluster |
+| `/api/{api_version}/server/{admin_path}/config/nodes/{node}` | GET | Get node details |
+| `/api/{api_version}/server/{admin_path}/config/nodes/settings` | GET | Get node identity settings |
+| `/api/{api_version}/server/{admin_path}/config/nodes/settings` | PATCH | Update node identity |
 
 ### Supported Remote Databases
 
@@ -55668,7 +56902,7 @@ When using remote database, the same tables are created but with appropriate typ
 **Notes:**
 - Only ONE row ever exists (id=1)
 - Created via setup wizard on first run
-- Setup token displayed in console ONCE, used to access `/{admin_path}/server/setup`
+- Setup token displayed in console ONCE, used to access `/server/{admin_path}/config/setup`
 - Admin password and API token created during setup wizard (user must copy)
 
 #### Admin Sessions Table
@@ -55856,7 +57090,7 @@ func CheckNameAvailable(name string) error {
 
 ### Reserved Names & Global Namespace
 
-**Usernames and org slugs share the SAME namespace.** A name cannot be registered as a username if an org with that slug exists, and vice versa. This is standard practice (GitHub, GitLab, Gitea).
+**Usernames and org/team slugs share the SAME namespace.** A name cannot be registered as a username if an org/team with that slug exists, and vice versa. This is standard practice (GitHub, GitLab, Gitea).
 
 See PART 16 (Web Frontend) for the complete reserved names list.
 
@@ -55864,7 +57098,7 @@ See PART 16 (Web Frontend) for the complete reserved names list.
 
 
 
-# PART 35: ORGANIZATIONS (REQUIRED - NON-NEGOTIABLE FOR THIS PROJECT)
+# PART 35: ORGANIZATIONS (OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED)
 
 **Requires PART 34: MULTI-USER to be implemented first.**
 
@@ -55941,6 +57175,8 @@ Does your app have multiple users?
 
 ### Organization vs Just Groups/Teams
 
+**Terminology rule:** This spec uses **organization** as the canonical internal term. Apps may label the same concept as **team**, **workspace**, **group**, or similar in user-facing copy when that better matches the product. Routes, config examples, and database examples stay `org`/`orgs` unless the project has a stronger established convention.
+
 **When full Organizations are needed:**
 
 | Feature | Simple Groups | Full Organizations |
@@ -55964,6 +57200,46 @@ Does your app have multiple users?
 | Are companies/agencies with multiple staff | ✅ Yes |
 
 ---
+
+## Organization Creation Modes
+
+**Organization/team creation is a separate concern from organization visibility and member invites.**
+
+- **Creation mode** answers who may create a new organization/team
+- **Visibility** answers who can see an existing organization/team
+- **Member invites** answer who can add people after the organization/team exists
+
+**Server config example:**
+```yaml
+server:
+  orgs:
+    enabled: true
+
+    creation:
+      # Organization/team creation mode: open (default), invite, admin_only, disabled
+      # - open: Any authenticated user can create an organization/team
+      # - invite: Only users with a server-admin-issued org/team creation invite/code can create one
+      # - admin_only: Only Server Admin can create organizations/teams and assign the initial owner
+      # - disabled: No new organizations/teams can be created
+      mode: open
+
+    profile:
+      default_visibility: public
+
+    members:
+      default_role: member
+      require_2fa: false
+      allow_invites: true
+```
+
+| Mode | Who Can Create | Initial Owner | Default | Use Case |
+|------|----------------|---------------|---------|----------|
+| **open** | Any authenticated user | Creator | **YES** | Collaborative/self-service products |
+| **invite** | User with org/team creation invite/code | Invite redeemer | No | Controlled self-service onboarding |
+| **admin_only** | Server Admin only | User selected by admin | No | Enterprise/internal deployments |
+| **disabled** | Nobody | N/A | No | Existing orgs remain, but no new ones are allowed |
+
+**Key rule:** `server.orgs.creation.mode` is a **server-level policy**. It is not an organization-level setting, and it must not be confused with per-org `visibility: public/private`.
 
 ## Organization Profile
 
@@ -56023,6 +57299,8 @@ GET /api/{api_version}/orgs/acme-corp
 
 ### Org Settings
 
+**Org/team creation policy is configured at the server level (`server.orgs.creation.mode` / `/server/{admin_path}/config/settings`). It is NOT editable inside an individual org/team.**
+
 **Settings Categories:**
 
 | Category | Route | Who Can Edit |
@@ -56044,7 +57322,7 @@ GET /api/{api_version}/orgs/acme-corp
 | `description` | String | null | Short description |
 | `website` | URL | null | Organization website |
 | `location` | String | null | Location |
-| `visibility` | Select | `public` | Public or private org |
+| `visibility` | Select | `public` | Public or private org/team profile (not creation mode) |
 | `default_member_role` | Select | `member` | Role for new members |
 | `require_2fa` | Toggle | Off | Require 2FA for all members |
 
@@ -56229,6 +57507,7 @@ Organization Email Settings (/orgs/acme-corp/email)
 
 | Setting Category | Storage Location |
 |------------------|------------------|
+| **Creation Policy** (`server.orgs.creation.mode`) | Server config / server settings |
 | **General** (name, slug, description, website, location, visibility) | `orgs` table |
 | **Members** (default_role, require_2fa, allow_invites) | `org_preferences` table |
 | **Visibility** (show_members, show_activity) | `org_preferences` table |
@@ -56505,7 +57784,7 @@ See PART 16 (Web Frontend) for the complete reserved names list. Users and orgs 
 ---
 
 
-# PART 36: CUSTOM DOMAINS (REQUIRED - NON-NEGOTIABLE FOR THIS PROJECT)
+# PART 36: CUSTOM DOMAINS (OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED)
 
 ## Overview
 
@@ -56885,15 +58164,15 @@ func CustomDomainMiddleware(resolver *DomainResolver) func(http.Handler) http.Ha
 | `/orgs/{slug}/domains/{domain}/verify` | Trigger verification |
 | `/orgs/{slug}/domains/{domain}/delete` | Delete confirmation |
 
-### Admin Domain Management (`/{admin_path}/server/domains/`)
+### Admin Domain Management (`/server/{admin_path}/config/domains/`)
 
 | Path | Description |
 |------|-------------|
-| `/{admin_path}/server/domains` | List all custom domains |
-| `/{admin_path}/server/domains/{domain}` | View/manage any domain |
-| `/{admin_path}/server/domains/{domain}/suspend` | Suspend domain |
-| `/{admin_path}/server/domains/{domain}/unsuspend` | Unsuspend domain |
-| `/{admin_path}/server/domains/{domain}/delete` | Force delete domain |
+| `/server/{admin_path}/config/domains` | List all custom domains |
+| `/server/{admin_path}/config/domains/{domain}` | View/manage any domain |
+| `/server/{admin_path}/config/domains/{domain}/suspend` | Suspend domain |
+| `/server/{admin_path}/config/domains/{domain}/unsuspend` | Unsuspend domain |
+| `/server/{admin_path}/config/domains/{domain}/delete` | Force delete domain |
 
 ## API Routes
 
@@ -56915,16 +58194,16 @@ func CustomDomainMiddleware(resolver *DomainResolver) func(http.Handler) http.Ha
 
 Same routes as user, scoped to organization.
 
-### Admin Domain API (`/api/{api_version}/{admin_path}/server/domains/`)
+### Admin Domain API (`/api/{api_version}/server/{admin_path}/config/domains/`)
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/{api_version}/{admin_path}/server/domains` | GET | List all domains (paginated) |
-| `/api/{api_version}/{admin_path}/server/domains/{domain}` | GET | Get any domain details |
-| `/api/{api_version}/{admin_path}/server/domains/{domain}` | DELETE | Force delete any domain |
-| `/api/{api_version}/{admin_path}/server/domains/{domain}/suspend` | POST | Suspend domain |
-| `/api/{api_version}/{admin_path}/server/domains/{domain}/unsuspend` | POST | Unsuspend domain |
-| `/api/{api_version}/{admin_path}/server/domains/{domain}/ssl/renew` | POST | Force SSL renewal |
+| `/api/{api_version}/server/{admin_path}/config/domains` | GET | List all domains (paginated) |
+| `/api/{api_version}/server/{admin_path}/config/domains/{domain}` | GET | Get any domain details |
+| `/api/{api_version}/server/{admin_path}/config/domains/{domain}` | DELETE | Force delete any domain |
+| `/api/{api_version}/server/{admin_path}/config/domains/{domain}/suspend` | POST | Suspend domain |
+| `/api/{api_version}/server/{admin_path}/config/domains/{domain}/unsuspend` | POST | Unsuspend domain |
+| `/api/{api_version}/server/{admin_path}/config/domains/{domain}/ssl/renew` | POST | Force SSL renewal |
 
 ## Verification Flow
 
@@ -57074,7 +58353,7 @@ func (s *DomainService) getServerPublicIPs() []net.IP {
 
 // discoverPublicIPs discovers our public IP addresses
 // Called on startup and every 12 hours (hardcoded, sensible interval)
-// Safe to expose in /healthz - same info available via `dig`
+// Safe to expose in /server/healthz - same info available via `dig`
 func discoverPublicIPs() ([]net.IP, error) {
     var ips []net.IP
 
@@ -57360,9 +58639,9 @@ server:
         description: "Remove unverified domains after TTL"
 ```
 
-**Public IP in /healthz:**
+**Public IP in /server/healthz:**
 
-The discovered public IPs are safe to include in `/healthz` - same info anyone can get with `dig {fqdn}`.
+The discovered public IPs are safe to include in `/server/healthz` - same info anyone can get with `dig {fqdn}`.
 - IPv4: From external lookup (needed for containers/NAT)
 - IPv6: From local interface if global unicast address exists
 
@@ -57541,7 +58820,7 @@ When implementing custom domains for a project:
 **Every IDEA.md has exactly three top-level sections in this order:**
 
 1. `## Project description` — free-form prose: what the project is, who uses it, what problem it solves
-2. `## Project variables` — `key: value` lines that drive substitution into AI.md (`project_name`, `project_org`, `internal_name`, etc.)
+2. `## Project variables` — `key: value` lines that provide the canonical values AI.md resolves for `project_name`, `project_org`, `internal_name`, etc.
 3. `## Business logic` — features, data models, business rules, endpoints (WHAT, not HOW)
 
 **See PART 0 → "IDEA.md Required Layout" for the authoritative rules: variable-key naming, the immutable `internal_name` rule, the missing-value setup flow, and the migration procedure for legacy free-form IDEA.md files.**
@@ -57558,10 +58837,10 @@ Free-form prose, 1–3 paragraphs.}
 
 ## Project variables
 
-project_name:    caspbx
-project_org:     casapps
-internal_name:   caspbx        # FROZEN — equals project_name on first install, never changes
-app_name:        caspbx
+project_name:    {project_name}
+project_org:     {project_org}
+internal_name:   {project_name}        # FROZEN — equals project_name on first install, never changes
+app_name:        {project_name}
 official_site:   {fqdn}
 maintainer_name: {maintainer_name}
 maintainer_email: {maintainer_email}
@@ -57769,12 +59048,13 @@ maintainer_email: jane@example.com
 
 ### Document Rules
 
-- [ ] **AI.md is SOURCE OF TRUTH** - implementation patterns, only modify for OPTIONAL→REQUIRED
+- [ ] **AI.md is SOURCE OF TRUTH** - PARTS 0-36 define HOW, PART 37 is reference-only, only flip PARTS 34-36 from OPTIONAL→REQUIRED
 - [ ] **IDEA.md is the project PLAN** - WHAT (update when features change)
 - [ ] **IDEA.md must be SPEC compliant** - AI.md always wins conflicts
 - [ ] **IDEA.md examples are illustrative only** - SPEC defines actual patterns
 - [ ] Keep IDEA.md in sync with current project vision
 - [ ] **NEVER allow outdated files** - README, docs, Swagger, GraphQL must match current state
+- [ ] **No report-only files** - no AUDIT.md/REPORT.md/ANALYSIS.md/etc.; temporary `AUDIT.AI.md` is allowed only for explicit audits and must be deleted when resolved
 - [ ] Use TODO.AI.md for tasks when 3+ items
 - [ ] Use PLAN.AI.md for implementation planning
 
@@ -57798,6 +59078,7 @@ maintainer_email: jane@example.com
 - [ ] **ALWAYS verify before modifying** - read existing code first
 - [ ] **ALWAYS use exact naming** - config paths, routes, file names as specified
 - [ ] **ALWAYS check cross-references** - ensure consistency across sections
+- [ ] **No silent fixes** - surface the issue in your response, then fix it unless the user asked for report-only analysis
 
 ### Code Rules
 
@@ -57805,7 +59086,7 @@ maintainer_email: jane@example.com
 - [ ] No external runtime dependencies - everything embedded
 - [ ] Use ONLY approved libraries (see PART 5)
 - [ ] Follow exact config paths: `server.xxx`, not variations
-- [ ] Follow exact route patterns: `/api/{api_version}/{admin_path}/server/xxx`
+- [ ] Follow exact route patterns: `/api/{api_version}/server/{admin_path}/config/xxx`
 - [ ] Token prefixes: `adm_` (admin), `usr_` (user), `org_` (org)
 - [ ] Setup token: 32 hex chars, no dashes
 
@@ -57843,13 +59124,13 @@ maintainer_email: jane@example.com
 
 1. **FIRST:** Read AI.md PART 0 and PART 1 (critical rules) - MANDATORY every conversation
 2. Read the relevant `.claude/rules/*.md` files for your current task
-3. Read TODO.AI.md for current tasks (if exists)
+3. Read TODO.AI.md and TODO.md for current tasks (if either exists)
 4. Identify the specific PART(s) for your task
 5. Check for cross-references to other sections
 6. Ask clarifying questions BEFORE implementing
 7. Implement exactly as specified
 8. Verify consistency with related sections
-9. Update TODO.AI.md when tasks complete
+9. Update TODO.AI.md (and mark items done in TODO.md if listed there) when tasks complete
 
 **After context compaction:** Re-read PART 0, 1 and relevant rules files before continuing.
 
@@ -57861,7 +59142,7 @@ maintainer_email: jane@example.com
 | `go build` locally | `make dev` or `make local` or `make build` |
 | `go test` locally | `make test` (includes coverage enforcement) |
 | `go mod tidy` locally | Handled by `make build/local/dev` automatically |
-| `./binaries/caspbx` locally | Run binary inside Docker/Incus container |
+| `./binaries/{project_name}` locally | Run binary inside Docker/Incus container |
 | Go installed locally | Use Makefile targets (they use Docker internally) |
 
 **GODIR (Go Module Cache):**
@@ -57875,15 +59156,15 @@ GOCACHE := $(HOME)/.local/share/go/build  # Local machine path for build cache
 | NEVER | ALWAYS |
 |-------|--------|
 | `docker compose up` in project dir | Use temp directory workflow |
-| Runtime data in project directory | `/tmp/casapps/caspbx-XXXXXX/` |
-| `mktemp -d` (bare) | `mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX"` |
-| `/tmp/myfile` | `/tmp/casapps/caspbx-XXXXXX/myfile` |
+| Runtime data in project directory | `/tmp/{project_org}/{internal_name}-XXXXXX/` |
+| `mktemp -d` (bare) | `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` |
+| `/tmp/myfile` | `/tmp/{project_org}/{internal_name}-XXXXXX/myfile` |
 
 ```bash
 # Temp dir workflow
-mkdir -p "${TMPDIR:-/tmp}/$CASAPPS"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$CASAPPS/$CASPBX-XXXXXX")
-mkdir -p "$TEMP_DIR/rootfs/config" "$TEMP_DIR/rootfs/data"
+mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
+mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
 cd "$TEMP_DIR" && docker compose up -d
 ```
@@ -57893,7 +59174,7 @@ cd "$TEMP_DIR" && docker compose up -d
 |--------------|--------|
 | `config/`, `data/`, `logs/`, `cache/` | Runtime dirs go to temp/OS paths |
 | `server.yml`, `cli.yml` | Generated at runtime, not in repo |
-| `rootfs/` in project root | Only in `docker/file_system/` for build overlay |
+| `volumes/` in project root | Runtime mount data belongs in temp/deployment dirs, not the source repo |
 | `.env` with secrets | Use environment variables or admin panel |
 
 **Config Files:**
@@ -57928,9 +59209,9 @@ make docker # Build Docker image
 **File Locations:**
 | Type | Development/Test | Production |
 |------|------------------|------------|
-| Config | `/tmp/{org}/{proj}-XXX/rootfs/config/` | `/etc/{org}/{proj}/` (Linux) |
-| Data | `/tmp/{org}/{proj}-XXX/rootfs/data/` | `/var/lib/{org}/{proj}/` (Linux) |
-| Binary | `binaries/caspbx` | `/usr/local/bin/caspbx` |
+| Config | `/tmp/{org}/{proj}-XXX/volumes/config/` | `/etc/{org}/{proj}/` (Linux) |
+| Data | `/tmp/{org}/{proj}-XXX/volumes/data/` | `/var/lib/{org}/{proj}/` (Linux) |
+| Binary | `binaries/{project_name}` | `/usr/local/bin/{project_name}` |
 
 ---
 
@@ -57941,6 +59222,8 @@ make docker # Build Docker image
 **PART 0-2: Meta & Rules**
 - [ ] AI.md exists and is READ-ONLY (implementation spec)
 - [ ] IDEA.md exists and contains project-specific business logic
+- [ ] If pre-template `CLAUDE.md` or `.claude/CLAUDE.md` existed, its project-specific content was migrated into IDEA.md
+- [ ] Claude loader files are now short loaders only and no longer hold the primary business spec
 - [ ] MIT License in LICENSE.md
 - [ ] All embedded library licenses listed
 - [ ] No proprietary dependencies
@@ -57967,12 +59250,12 @@ make docker # Build Docker image
 - [ ] BSD paths: Same as Linux
 - [ ] Docker paths: `/config/`, `/data/`
 - [ ] Root vs user path detection works
-- [ ] All path functions use `casapps/caspbx` structure
+- [ ] All path functions use `{project_org}/{internal_name}` structure
 
 **PART 5: Configuration**
 - [ ] Config file: `server.yml` (not .yaml, not .json)
 - [ ] Hierarchy: CLI flags > env vars > file > defaults
-- [ ] Environment prefix: `CASPBX_`
+- [ ] Environment prefix: `{PROJECT_NAME}_`
 - [ ] Boolean values: true/false, yes/no, 1/0, on/off all work
 - [ ] All config values have sane defaults
 - [ ] Unknown config keys are ERRORS, not ignored
@@ -58041,6 +59324,11 @@ make docker # Build Docker image
 
 **PART 11: Security & Logging**
 - [ ] All security headers set (CSP, X-Frame-Options, etc.)
+- [ ] Untrusted file/HTML/markdown content isolated (escaped text or sanitized markdown only)
+- [ ] User-controlled active content (HTML/SVG/XML) not served executable on the app origin
+- [ ] Archive extraction blocked or safely constrained (when applicable)
+- [ ] Private file/blob delivery uses authz + `private, no-store` (when applicable)
+- [ ] User content processing never executes untrusted content
 - [ ] HSTS enabled when SSL active
 - [ ] Rate limiting enabled and configurable
 - [ ] Audit logging to audit.log (JSON format)
@@ -58059,8 +59347,9 @@ make docker # Build Docker image
 - [ ] Cluster configuration (if applicable)
 
 **PART 13: Health & Versioning**
-- [ ] `/healthz` endpoint exists (frontend - smart detection)
-- [ ] `/api/{api_version}/healthz` endpoint exists (API - supports .txt)
+- [ ] `/server/healthz` endpoint exists (frontend - smart detection)
+- [ ] If `server.healthz.root.enabled=true`, `/healthz` maps directly to `/server/healthz` (same handler, no redirect)
+- [ ] `/api/{api_version}/server/healthz` endpoint exists (API - supports .txt)
 - [ ] Returns 200 OK when healthy
 - [ ] Smart detection: browser → HTML, CLI → formatted text
 - [ ] Extended healthz response includes:
@@ -58072,7 +59361,7 @@ make docker # Build Docker image
 - [ ] NEVER expose sensitive data (tokens, credentials, paths, internal IPs)
 - [ ] `release.txt` contains version
 - [ ] Semantic versioning: MAJOR.MINOR.PATCH
-- [ ] Version exposed in `/healthz` response
+- [ ] Version exposed in `/server/healthz` response
 - [ ] Version exposed in `--version` output
 - [ ] `--status` flag returns exit 0 (healthy) or 1 (unhealthy)
 
@@ -58086,7 +59375,7 @@ make docker # Build Docker image
 - [ ] API versioning in URL path
 - [ ] No breaking changes without major version bump
 
-### Phase 5: Auth & Security (PARTS 15-16)
+### Phase 5: SSL/TLS & Web Frontend (PARTS 15-16)
 
 **PART 15: SSL/TLS & Let's Encrypt**
 - [ ] Let's Encrypt HTTP-01 challenge
@@ -58120,8 +59409,8 @@ make docker # Build Docker image
 ### Phase 6: Admin & Email (PARTS 17-18)
 
 **PART 17: Admin Panel**
-- [ ] Admin UI at `/{admin_path}`
-- [ ] Admin API at `/api/{api_version}/{admin_path}/`
+- [ ] Admin UI at `/server/{admin_path}`
+- [ ] Admin API at `/api/{api_version}/server/{admin_path}/`
 - [ ] First-run setup wizard
 - [ ] All settings configurable via UI
 - [ ] Settings organized by category
@@ -58176,8 +59465,8 @@ make docker # Build Docker image
 - [ ] Backup includes: database, config, uploads
 - [ ] Restore is atomic (all or nothing)
 - [ ] **Backup verification after creation** (checksum, decrypt, extract, DB integrity)
-- [ ] **Daily incremental** `caspbx-daily.tar.gz[.enc]` always valid
-- [ ] **Hourly incremental** `caspbx-hourly.tar.gz[.enc]` (if enabled)
+- [ ] **Daily incremental** `{project_name}-daily.tar.gz[.enc]` always valid
+- [ ] **Hourly incremental** `{project_name}-hourly.tar.gz[.enc]` (if enabled)
 - [ ] **Cluster mode**: each node maintains own valid backups (max_backups per node)
 
 ### Phase 8: Maintenance (PARTS 23-26)
@@ -58265,6 +59554,8 @@ make docker # Build Docker image
   - [ ] docs/configuration.md
   - [ ] docs/api.md
   - [ ] docs/admin.md
+  - [ ] docs/security.md
+  - [ ] docs/integrations.md
   - [ ] docs/development.md
 - [ ] ReadTheDocs builds successfully
 - [ ] Documentation badge in README.md
@@ -58275,7 +59566,9 @@ make docker # Build Docker image
 - [ ] WCAG 2.1 AA compliance
 - [ ] Accessibility testing performed
 
-### Phase 11: Optional Features (PARTS 32-36)
+### Phase 11: Conditional & Project-Specific Features (PARTS 32-36)
+
+**Interpretation:** PART 32 is conditional on Tor availability, PART 33 is required for all projects, and PARTS 34-36 are optional per project.
 
 **PART 32: Tor Hidden Service**
 - [ ] Auto-enabled when tor binary found
@@ -58285,11 +59578,36 @@ make docker # Build Docker image
 - [ ] Tor status in admin panel
 - [ ] Tor config in `{config_dir}/tor/torrc`
 - [ ] Tor data in `{data_dir}/tor/`
-- [ ] Tor fields in `/api/{api_version}/healthz`:
+- [ ] Tor fields in `/api/{api_version}/server/healthz`:
   - [ ] `features.tor.enabled` (yes/no)
   - [ ] `features.tor.running` (yes/no)
   - [ ] `features.tor.status` (healthy/error:{message})
   - [ ] `features.tor.hostname` ({onion_address})
+
+**PART 33: Client & Agent**
+
+*Client (REQUIRED for all projects):*
+- [ ] Binary: `{project_name}-cli`
+- [ ] `src/client/` directory exists
+- [ ] Same version as server
+- [ ] CLI mode (standard commands)
+- [ ] TUI mode (interactive)
+- [ ] Config: `~/.config/{project_org}/{internal_name}/cli.yml`
+- [ ] Theme matching server (dark default)
+- [ ] Shell completions (bash, zsh, fish, powershell)
+- [ ] All server API operations accessible via CLI
+- [ ] Cluster failover support:
+  - [ ] `server.primary` and `server.cluster` in cli.yml
+  - [ ] Auto-discover nodes from `/api/autodiscover`
+  - [ ] Auto-update cli.yml with discovered nodes
+  - [ ] Automatic failover to next node if primary fails
+
+*Agent (only for monitoring/remote management projects):*
+- [ ] Binary: `{project_name}-agent`
+- [ ] `src/agent/` directory exists
+- [ ] Runs directly on system, NOT in container
+- [ ] Same version as server
+- [ ] Systemd/launchd/Windows service support
 
 **PART 34: Multi-User** (if applicable)
 - [ ] User registration flow
@@ -58311,32 +59629,7 @@ make docker # Build Docker image
 - [ ] SSL for custom domains
 - [ ] DNS verification
 - [ ] Domain management in admin
-
-**PART 33: Client & Agent**
-
-*Client (REQUIRED for all projects):*
-- [ ] Binary: `caspbx-cli`
-- [ ] `src/client/` directory exists
-- [ ] Same version as server
-- [ ] CLI mode (standard commands)
-- [ ] TUI mode (interactive)
-- [ ] Config: `~/.config/casapps/caspbx/cli.yml`
-- [ ] Theme matching server (dark default)
-- [ ] Shell completions (bash, zsh, fish, powershell)
-- [ ] All server API operations accessible via CLI
-- [ ] Cluster failover support:
-  - [ ] `server.primary` and `server.cluster` in cli.yml
-  - [ ] Auto-discover nodes from `/api/autodiscover`
-  - [ ] Auto-update cli.yml with discovered nodes
-  - [ ] Automatic failover to next node if primary fails
-
-*Agent (only for monitoring/remote management projects):*
-- [ ] Binary: `caspbx-agent`
-- [ ] `src/agent/` directory exists
-- [ ] Runs directly on system, NOT in container
-- [ ] Same version as server
-- [ ] Systemd/launchd/Windows service support
-- [ ] Config: `/etc/casapps/caspbx/agent.yml`
+- [ ] Config: `/etc/{project_org}/{internal_name}/agent.yml`
 - [ ] Connects to central server
 - [ ] Same flags as server EXCEPT no `--port`/`--address` (agents don't serve HTTP)
 - [ ] Communication pattern documented:
@@ -58378,10 +59671,12 @@ make docker # Build Docker image
 
 - [ ] All user input validated server-side
 - [ ] SQL injection prevented (parameterized queries)
-- [ ] XSS prevented (output encoding)
+- [ ] XSS prevented (output encoding + sanitized rich content)
 - [ ] Command injection prevented (no shell exec with user input)
 - [ ] Path traversal prevented (canonicalized paths)
 - [ ] File upload restrictions enforced
+- [ ] User file/blob viewers escape code/text and never trust stored HTML
+- [ ] Markdown rendering disables raw HTML and sanitizes output
 - [ ] Content-Type validation
 - [ ] Size limits on all inputs
 
@@ -58438,7 +59733,7 @@ make docker # Build Docker image
 - [ ] Server admins in separate table (`admins`)
 - [ ] Regular users in separate table (`users`)
 - [ ] Separate session tables (`admin_sessions`, `user_sessions`)
-- [ ] Admin routes protected (`/{admin_path}/*`)
+- [ ] Admin routes protected (`/server/{admin_path}/*`)
 - [ ] No privilege escalation path from user to admin
 
 ---
@@ -58504,7 +59799,7 @@ make docker # Build Docker image
 - [ ] Frontend is fully functional (not just display)
 - [ ] All CRUD operations work from both frontend and API
 - [ ] No orphan routes (frontend-only or API-only)
-- [ ] Routes follow scope rules (`/auth/`, `/users/`, `/orgs/`, `/admin/`)
+- [ ] Routes follow scope rules (`/server/`, `/server/auth/`, `/users/`, `/orgs/`, `/server/{admin_path}/`)
 
 ### REST API (`/api/{api_version}/`)
 
@@ -58518,17 +59813,17 @@ make docker # Build Docker image
 - [ ] Sorting: sort, order parameters
 - [ ] HATEOAS links (optional but recommended)
 
-### OpenAPI/Swagger (`/server/docs/swagger` UI, `/api/{api_version}/swagger` spec)
+### OpenAPI/Swagger (`/server/docs/swagger` UI, `/api/{api_version}/server/swagger` spec)
 
 - [ ] Swagger UI accessible
-- [ ] OpenAPI spec at `/api/{api_version}/swagger` (with `/api/swagger` alias for current version)
+- [ ] OpenAPI spec at `/api/{api_version}/server/swagger` (with `/api/swagger` alias for current version)
 - [ ] All endpoints documented
 - [ ] Request/response schemas defined
 - [ ] Authentication documented
 - [ ] Examples provided
 - [ ] Theme matches project theme
 
-### GraphQL (`/server/docs/graphql` UI, `/api/{api_version}/graphql` POST endpoint)
+### GraphQL (`/server/docs/graphql` UI, `/api/{api_version}/server/graphql` POST endpoint)
 
 - [ ] GraphQL endpoint accessible
 - [ ] GraphiQL/Playground available
@@ -58548,7 +59843,7 @@ make docker # Build Docker image
 ### Client Type Detection & Response
 
 **Three Types of CLI Tools:**
-- [ ] **Our Client** (`caspbx-cli`) - INTERACTIVE, receives JSON, renders own TUI/GUI
+- [ ] **Our Client** (`{project_name}-cli`) - INTERACTIVE, receives JSON, renders own TUI/GUI
 - [ ] **Text Browsers** (lynx, w3m, links, elinks) - INTERACTIVE, receive no-JS HTML via `renderNoJSHTML()`, NO JavaScript
 - [ ] **HTTP Tools** (curl, wget, httpie) - NON-INTERACTIVE, receive formatted text via `HTML2TextConverter()`
 
@@ -58598,8 +59893,8 @@ make docker # Build Docker image
 - [ ] Documentation pages included
 - [ ] API docs (`/server/docs/swagger`, `/server/docs/graphql`) included
 - [ ] User profiles included ONLY if public
-- [ ] Admin pages (`/admin/*`) NEVER included
-- [ ] Auth pages (`/auth/*`) NEVER included
+- [ ] Admin pages (`/server/{admin_path}/*`) NEVER included
+- [ ] Auth pages (`/server/auth/*`) NEVER included
 - [ ] API endpoints (`/api/*`) NEVER included
 - [ ] `lastmod` dates accurate
 - [ ] Large sites (>50k URLs) use sitemap index
@@ -58632,6 +59927,10 @@ make docker # Build Docker image
 - [ ] `/sitemap.xml` generated (see above)
 - [ ] `/favicon.ico` served (embedded default or custom)
 - [ ] `/.well-known/security.txt` served (RFC 9116)
+- [ ] `/.well-known/change-password` behaves correctly for authenticated vs unauthenticated users
+- [ ] `/.well-known/pgp-key.asc` is served only when a security-report keypair exists; otherwise 404
+- [ ] Optional `/.well-known/*` entries only exist when their matching feature/integration is explicitly enabled
+- [ ] Unknown `/.well-known/*` entries return `404` and never expose a directory listing
 - [ ] Security.txt has valid Contact and Expires fields
 
 ---
@@ -58814,7 +60113,7 @@ make docker # Build Docker image
 - [ ] Stored as SHA-256 hash in `{config_dir}/setup_token.txt`
 - [ ] Plaintext token shown ONCE in console banner
 - [ ] File deleted after successful setup completion
-- [ ] Setup URL displayed: `{proto}://{fqdn}/{admin_path}/server/setup`
+- [ ] Setup URL displayed: `{proto}://{fqdn}/server/{admin_path}/config/setup`
 - [ ] Token section only appears on first run (never again after setup)
 
 ### CLI Flag Syntax (ALL Binaries)
@@ -58856,7 +60155,7 @@ make docker # Build Docker image
 - [ ] `{smtp_port}` - SMTP server port
 - [ ] `{startup_datetime}` - Server start timestamp
 - [ ] `{setup_token}` - First-run setup token (shown ONCE)
-- [ ] `CASPBX` - Project name (uppercase for display)
+- [ ] `{PROJECT_NAME}` - Project name (uppercase for display)
 - [ ] `{projectversion}` - Current version
 
 ### Client TUI/GUI Dynamic Sizing
@@ -58980,7 +60279,7 @@ make docker # Build Docker image
 ### Allowed Contexts Are Explicit
 
 - [ ] All forbidden-category commands in test scripts are wrapped in `docker exec`, `docker run`, `incus exec`, `lxc exec`, `podman exec`, `virsh`, `vagrant ssh -c`, `multipass exec`, `chroot`, or `ip netns exec`
-- [ ] Test container/instance names follow `test-caspbx` pattern so they are clearly disposable
+- [ ] Test container/instance names follow `test-{project_name}` pattern so they are clearly disposable
 - [ ] No test or debug script assumes "I'm in a container" without checking — `/.dockerenv`, `/run/.containerenv`, `/proc/1/cgroup`, `systemd-detect-virt`, or `$container` is consulted before any host-affecting command
 - [ ] When detection is ambiguous, scripts default to refusing the host-affecting command
 
@@ -59010,7 +60309,7 @@ make docker # Build Docker image
 
 **ALL sections marked NON-NEGOTIABLE must be implemented exactly as specified.**
 
-**When in doubt:** Re-read AI.md (HOW), IDEA.md (WHAT), and TODO.AI.md. Ask questions. Never assume.
+**When in doubt:** Re-read AI.md (HOW), IDEA.md (WHAT), TODO.AI.md, and TODO.md. Ask questions. Never assume.
 
 ---
 
@@ -59040,14 +60339,16 @@ When integrating this specification into an existing project:
 ### Phase 2: Planning
 
 1. **Do NOT start making changes yet**
-2. **Review TODO.AI.md with the human** - get approval on priorities
+2. **Review TODO.AI.md with the human only if priorities, scope, or breaking-change handling are unclear**
 3. **Ask clarifying questions:**
-   - Are there existing features that should be preserved?
-   - Are there breaking changes acceptable?
-   - What is the migration timeline (can it be done incrementally)?
-   - Are there production systems that need careful migration?
+    - Are there existing features that should be preserved?
+    - Are there breaking changes acceptable?
+    - What is the migration timeline (can it be done incrementally)?
+    - Are there production systems that need careful migration?
 4. **Create a migration plan** for each major change
 5. **Identify risks** - data migration, API breaking changes, downtime requirements
+
+**Default execution rule:** once the migration plan is clear enough to act safely, continue working through it without repeatedly stopping to ask whether to proceed.
 
 ### Phase 3: Incremental Implementation
 
@@ -59076,10 +60377,10 @@ When integrating this specification into an existing project:
 After each significant change:
 
 1. **Test thoroughly** - verify nothing broke
-2. **Update TODO.AI.md** - mark items complete
+2. **Update TODO.AI.md** - mark items complete (also mark matching items done in TODO.md if present)
 3. **Update IDEA.md** - reflect current project state
 4. **Document breaking changes** - if any
-5. **Get human approval** before proceeding to next phase
+5. **Get human approval before proceeding to the next phase only if** the next phase introduces breaking behavior, destructive migration steps, production-impacting risk, or unresolved scope decisions
 
 ---
 
@@ -59176,7 +60477,7 @@ Before starting integration:
 ## Example TODO.AI.md for Integration
 
 ```markdown
-# Integration Tasks for caspbx
+# Integration Tasks for {project_name}
 
 ## Critical (P0) - Do First
 
@@ -59218,6 +60519,8 @@ Before starting integration:
 - [ ] Create docs/ directory for ReadTheDocs
 - [ ] Write docs/index.md
 - [ ] Write docs/installation.md
+- [ ] Write docs/configuration.md, docs/api.md, docs/admin.md, docs/security.md
+- [ ] Write docs/integrations.md
 - [ ] Configure mkdocs.yml
 ```
 
@@ -59253,20 +60556,20 @@ When bootstrapping a new project from this specification:
 ### Phase 1: Project Initialization
 
 1. **Confirm project details:**
-   - Project name: `caspbx`
-   - Organization: `casapps`
+   - Project name: `{project_name}`
+   - Organization: `{project_org}`
    - Description: What does this project do?
    - Primary purpose: What problem does it solve?
 
 2. **Create directory structure:**
    ```bash
-   mkdir -p caspbx
-   cd caspbx
+   mkdir -p {project_name}
+   cd {project_name}
 
    # Create all required directories
    mkdir -p src/{config,server,swagger,graphql,mode,paths,ssl,scheduler,service,admin}
    mkdir -p src/server/{handler,service,model,store,template}
-   mkdir -p docker/file_system/usr/local/bin
+   mkdir -p docker/rootfs/usr/local/bin
    mkdir -p docs/stylesheets
    mkdir -p tests
    mkdir -p scripts
@@ -59294,7 +60597,7 @@ When bootstrapping a new project from this specification:
    touch docker/docker-compose.yml
    touch docker/docker-compose.dev.yml
    touch docker/docker-compose.test.yml
-   touch docker/file_system/usr/local/bin/entrypoint.sh
+   touch docker/rootfs/usr/local/bin/entrypoint.sh
 
    # ReadTheDocs files
    touch mkdocs.yml
@@ -59304,6 +60607,8 @@ When bootstrapping a new project from this specification:
    touch docs/configuration.md
    touch docs/api.md
    touch docs/admin.md
+   touch docs/security.md
+   touch docs/integrations.md
    touch docs/development.md
    touch docs/requirements.txt
    touch docs/stylesheets/dark.css
@@ -59324,7 +60629,7 @@ When bootstrapping a new project from this specification:
 
 1. **Initialize Go module:**
    ```bash
-   go mod init github.com/casapps/caspbx
+   go mod init github.com/{project_org}/{internal_name}
    ```
 
 2. **Create src/main.go** - Minimal entry point
@@ -59342,7 +60647,7 @@ When bootstrapping a new project from this specification:
 4. **Add service support** per PART 24
 5. **Create Makefile** per PART 26
 
-**Test:** Server starts and responds to `/healthz`
+**Test:** Server starts and responds to `/server/healthz`
 
 #### Step 3: Docker & CI/CD (PARTS 27-28)
 
@@ -59372,7 +60677,7 @@ When bootstrapping a new project from this specification:
 4. **Implement first-run setup wizard**
 5. **Add all admin configuration pages**
 
-**Test:** Admin panel accessible at `/admin`
+**Test:** Admin panel accessible at `/server/{admin_path}`
 
 #### Step 6: API Layer (PART 14)
 
@@ -59407,17 +60712,18 @@ Implement remaining required parts:
 
 **Test after each part:** Verify the feature works before moving to next
 
-#### Step 8: Optional Features (PARTS 33-36)
+#### Step 8: Client + Project-Specific Features (PART 33, PARTS 34-36)
 
-Implement as needed for your project:
-1. **PART 34:** Multi-User (if project needs Regular User accounts)
-2. **PART 35:** Organizations (requires PART 34)
-3. **PART 36:** Custom Domains (if users/orgs need branded domains)
-4. **PART 33:** Client (if project needs command-line tool)
+Implement the required client, then any project-specific optional features:
+1. **PART 33:** Client (required for all projects)
+2. **PART 33:** Agent (only if project manages or monitors external nodes)
+3. **PART 34:** Multi-User (if project needs Regular User accounts)
+4. **PART 35:** Organizations (requires PART 34)
+5. **PART 36:** Custom Domains (if users/orgs need branded domains)
 
 #### Step 9: Documentation (PART 30)
 
-1. **Create all docs/*.md files**
+1. **Create all required docs/*.md files**
 2. **Configure mkdocs.yml**
 3. **Configure .readthedocs.yaml**
 4. **Add docs/requirements.txt**
@@ -59459,7 +60765,8 @@ Implement as needed for your project:
 ### Foundation (Must Complete First)
 
 - [ ] Directory structure created per spec
-- [ ] AI.md created and customized
+- [ ] AI.md present as the read-only spec, and IDEA.md created/updated with project variables and business logic
+- [ ] If `CLAUDE.md` or `.claude/CLAUDE.md` existed, IDEA.md was created/migrated before other work
 - [ ] go.mod initialized
 - [ ] .gitignore created with proper rules
 - [ ] Basic src/main.go exists
@@ -59476,8 +60783,8 @@ Implement as needed for your project:
 - [ ] Admin panel accessible
 - [ ] First-run setup wizard works
 - [ ] REST API endpoints defined
-- [ ] Swagger UI accessible at `/server/docs/swagger`; OpenAPI JSON at `/api/{api_version}/swagger` (with `/api/swagger` alias)
-- [ ] GraphiQL UI accessible at `/server/docs/graphql`; GraphQL POST at `/api/{api_version}/graphql` (with `/api/graphql` alias)
+- [ ] Swagger UI accessible at `/server/docs/swagger`; OpenAPI JSON at `/api/{api_version}/server/swagger` (with `/api/swagger` alias)
+- [ ] GraphiQL UI accessible at `/server/docs/graphql`; GraphQL POST at `/api/{api_version}/server/graphql` (with `/api/graphql` alias)
 - [ ] All three APIs in sync
 
 ### Infrastructure
